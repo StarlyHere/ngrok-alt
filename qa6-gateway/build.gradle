@@ -1,0 +1,30 @@
+// QA6 Gateway / Decision Layer — the front door (:9000). Splits traffic: normal
+// QA6 requests get a placeholder/upstream; tunnel/debug requests (cookie/header)
+// are normalized to X-Tunnel-Session and forwarded to the unchanged Router.
+
+plugins {
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+    id 'com.google.cloud.tools.jib'
+}
+
+dependencies {
+    implementation project(':protocol')
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+}
+
+jib {
+    from { image = 'eclipse-temurin:21-jre-jammy' }
+    to {
+        image = 'tunnel/qa6-gateway'
+        tags = ['latest']
+    }
+    container {
+        ports = ['9000']
+        jvmFlags = ['-XX:MaxRAMPercentage=70.0', '-XX:+UseSerialGC']
+        creationTime = 'USE_CURRENT_TIMESTAMP'
+    }
+}

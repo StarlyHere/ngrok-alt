@@ -1,0 +1,11 @@
+rootProject.name = 'tunnel'
+
+include 'protocol'
+include 'client'
+include 'pod'
+include 'router'
+include 'control'
+include 'qa6-sim'
+include 'dev-service'
+include 'transport-ssh'
+include 'qa6-gateway'

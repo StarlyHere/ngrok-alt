@@ -1,0 +1,37 @@
+server:
+  port: ${POD_PORT:8080}
+
+spring:
+  application:
+    name: pod
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      # NB: not ${REDIS_PORT} — k8s injects REDIS_PORT=tcp://… for the redis Service.
+      port: 6379
+
+pod:
+  id: ${POD_ID:pod-local}
+  host: ${POD_HOST:localhost}
+  port: ${POD_PORT:8080}
+  # External hops use WSS/TLS in QA6; plaintext is allowed in-cluster for the POC
+  # (PRD §9.2.5). Set pod.secure=true + server.ssl.* to serve wss/https.
+  secure: ${POD_SECURE:false}
+  heartbeat-interval-ms: 5000
+  pod-ttl-ms: 15000
+  session-ttl-ms: 15000
+  max-streams-per-session: 256
+  ssh-port: ${POD_SSH_PORT:2222}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    tags:
+      pod: ${POD_ID:pod-local}
+
+logging:
+  level:
+    com.tunnel.pod: INFO

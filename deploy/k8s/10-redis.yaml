@@ -1,0 +1,40 @@
+# Redis — the session registry / ownership store (PRD-v2.md §5).
+# Single instance for the POC (Redis HA is a Tier-2 / QA6 item).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: tunnel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args: ["redis-server", "--save", "", "--appendonly", "no"]
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: tunnel
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379

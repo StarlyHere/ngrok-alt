@@ -1,0 +1,25 @@
+// Sample Developer Service: a plain Spring Boot REST app, tunneling-unaware
+// (PRD-v2.md §6). Part 5: Jib image (runs as a sidecar beside the client in k8s).
+
+plugins {
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+    id 'com.google.cloud.tools.jib'
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+}
+
+jib {
+    from { image = 'eclipse-temurin:21-jre-jammy' }
+    to {
+        image = 'tunnel/dev-service'
+        tags = ['latest']
+    }
+    container {
+        ports = ['3000']
+        jvmFlags = ['-XX:MaxRAMPercentage=70.0', '-XX:+UseSerialGC']
+        creationTime = 'USE_CURRENT_TIMESTAMP'
+    }
+}

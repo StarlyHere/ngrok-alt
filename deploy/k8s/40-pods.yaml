@@ -1,0 +1,105 @@
+# Tunnel Pods — 5 replicas (PRD-v2.md §10; BUILD-CHECKLIST.md Part 5).
+#
+# Each pod registers its OWN pod IP in Redis so the Router can reach it directly
+# in-cluster for HTTP forwarding (sticky path B). The Router always uses pod IPs
+# internally — this does not change.
+#
+# External clients (developer laptops) connect via the tunnel-pod-ssh NodePort
+# Service below (port 30022) with sessionAffinity: ClientIP, which pins each
+# client to the same pod replica for the duration of the affinity window (3h).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tunnel-pod
+  namespace: tunnel
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: tunnel-pod
+  template:
+    metadata:
+      labels:
+        app: tunnel-pod
+    spec:
+      # Graceful drain window: on SIGTERM the pod deregisters from Redis and
+      # signals its clients to reconnect before the process exits (PRD-v2.md §10).
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: pod
+          image: tunnel/pod:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+            - containerPort: 2222
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:TieredStopAtLevel=1 -XX:ActiveProcessorCount=2"
+            - name: POD_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_PORT
+              value: "8080"
+            - name: POD_SSH_PORT
+              value: "2222"
+            - name: REDIS_HOST
+              value: redis
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: 140Mi
+            limits:
+              memory: 280Mi
+---
+# HTTP Service — used by the Router for internal pod-IP forwarding only.
+# Not exposed externally.
+apiVersion: v1
+kind: Service
+metadata:
+  name: tunnel-pod
+  namespace: tunnel
+spec:
+  type: NodePort
+  selector:
+    app: tunnel-pod
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30091
+---
+# SSH tunnel endpoint for external tunnel clients.
+# sessionAffinity: ClientIP pins each developer laptop to the same pod replica
+# for 3h, preventing split-brain in the in-memory ConnectionRegistry.
+apiVersion: v1
+kind: Service
+metadata:
+  name: tunnel-pod-ssh
+  namespace: tunnel
+spec:
+  type: NodePort
+  selector:
+    app: tunnel-pod
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+  ports:
+    - name: ssh
+      port: 2222
+      targetPort: 2222
+      nodePort: 30022

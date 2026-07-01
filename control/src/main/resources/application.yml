@@ -1,0 +1,29 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: control
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      # NB: not ${REDIS_PORT} — k8s injects REDIS_PORT=tcp://… for the redis Service.
+      port: 6379
+
+control:
+  session-ttl-ms: 15000
+  heartbeat-interval-ms: 5000
+  load-strategy: ${LOAD_STRATEGY:least-connections}
+  token-ttl-ms: 604800000        # 7 days
+  max-sessions-per-owner: ${MAX_SESSIONS_PER_OWNER:5}
+  tunnel-url: ${CONTROL_TUNNEL_URL:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+
+logging:
+  level:
+    com.tunnel.control: INFO

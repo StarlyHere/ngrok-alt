@@ -1,0 +1,22 @@
+// SSH second transport (PRD-v2.md §8; BUILD-CHECKLIST.md Part 5).
+//
+// Proves the TunnelProvider abstraction is real: the SAME mux + frame codec from
+// `protocol` runs over an SSH channel's byte stream instead of a WebSocket
+// message. Only the byte pipe changes — the protocol above it is identical.
+
+plugins {
+    id 'java-library'
+}
+
+dependencies {
+    api project(':protocol')
+    implementation 'org.apache.sshd:sshd-core:2.13.2'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testRuntimeOnly 'org.slf4j:slf4j-simple:2.0.13'
+}
+
+test {
+    useJUnitPlatform()
+}

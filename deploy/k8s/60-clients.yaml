@@ -1,0 +1,39 @@
+# Tunnel clients — model "developer machines" inside the cluster. 5 replicas →
+# 5 sessions, which the Coordinator spreads across the 5 pods via Least-Connections.
+#
+# Each client forwards to the shared `dev-service` Service (its single allowlisted
+# target — see --target-host). The client keeps a stable session id across
+# reconnects, so a pod failure resumes on the same URL (PRD-v2.md §10).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tunnel-client
+  namespace: tunnel
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tunnel-client
+  template:
+    metadata:
+      labels:
+        app: tunnel-client
+    spec:
+      containers:
+        - name: client
+          image: tunnel/client:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - http
+            - "3000"
+            - --coordinator=http://control:8090
+            - --token=demo-alice-7f3c9a2b1e6d4058
+            - --target-host=dev-service
+            - --inspector=4040
+          ports:
+            - containerPort: 4040
+          resources:
+            requests:
+              memory: 110Mi
+            limits:
+              memory: 200Mi

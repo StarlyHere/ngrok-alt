@@ -1,0 +1,23 @@
+# One-time auth seed: write a known bearer token → owner 'alice' into Redis so
+# the demo client pods can authenticate non-interactively (stands in for
+# `tunnel login`). The token is still validated by the Coordinator and pods.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: token-seed
+  namespace: tunnel
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: redis:7-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until redis-cli -h redis ping; do echo "waiting for redis…"; sleep 1; done
+              redis-cli -h redis set auth:token:demo-alice-7f3c9a2b1e6d4058 alice
+              echo "seeded demo token for owner alice"

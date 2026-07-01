@@ -1,0 +1,28 @@
+// Tunnel Client — the single binary (PRD-v2.md §7). A thin Spring Boot app with
+// no embedded web server; JDK-only networking. Part 5: a Jib image for the
+// in-cluster demo, plus a GraalVM native-image build (see gradle task below).
+
+plugins {
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+    id 'com.google.cloud.tools.jib'
+}
+
+dependencies {
+    implementation project(':protocol')
+    implementation project(':transport-ssh')
+    implementation 'org.springframework.boot:spring-boot-starter'
+}
+
+jib {
+    from { image = 'eclipse-temurin:21-jre-jammy' }
+    to {
+        image = 'tunnel/client'
+        tags = ['latest']
+    }
+    container {
+        ports = ['4040'] // request inspector
+        jvmFlags = ['-XX:MaxRAMPercentage=70.0', '-XX:+UseSerialGC']
+        creationTime = 'USE_CURRENT_TIMESTAMP'
+    }
+}

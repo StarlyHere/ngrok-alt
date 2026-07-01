@@ -1,0 +1,25 @@
+// QA6 Simulator — generates QA6-like traffic to the Router (PRD-v2.md §6).
+// Part 5: Jib image (can run as an in-cluster Job, or from the host).
+
+plugins {
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+    id 'com.google.cloud.tools.jib'
+}
+
+dependencies {
+    implementation project(':protocol')
+    implementation 'org.springframework.boot:spring-boot-starter'
+}
+
+jib {
+    from { image = 'eclipse-temurin:21-jre-jammy' }
+    to {
+        image = 'tunnel/qa6-sim'
+        tags = ['latest']
+    }
+    container {
+        jvmFlags = ['-XX:MaxRAMPercentage=70.0', '-XX:+UseSerialGC']
+        creationTime = 'USE_CURRENT_TIMESTAMP'
+    }
+}
