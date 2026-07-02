@@ -44,7 +44,7 @@ public class TunnelClient {
 
     private static final Logger log = LoggerFactory.getLogger(TunnelClient.class);
 
-    private static final long INITIAL_BACKOFF_MS = 500;
+    private static final long INITIAL_BACKOFF_MS = 3_000;
     private static final long MAX_BACKOFF_MS = 10_000;
     private static final long REGISTER_TIMEOUT_MS = 10_000;
 
@@ -102,6 +102,7 @@ public class TunnelClient {
         inspector.stop();
         log.info("tunnel client stopped");
     }
+    
 
     /**
      * Ask the Coordinator which pod to connect to (path A). On reconnect the
@@ -124,6 +125,7 @@ public class TunnelClient {
         }
         sessionId = a.sessionId(); // remember for the next (re)connect
         return a;
+
     }
 
     private void connectAndServe(AssignmentResponse assignment) throws Exception {
@@ -145,6 +147,7 @@ public class TunnelClient {
         RegisterMessage reg = new RegisterMessage(
                 assignment.sessionId(), config.ownerId(), config.targetPort(),
                 provider.name(), config.clientVersion());
+    
         conn.sendControl(FrameType.REGISTER, ControlCodec.encodeRegister(reg));
 
         if (!ackLatch.await(REGISTER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {

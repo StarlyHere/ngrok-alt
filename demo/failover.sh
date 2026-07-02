@@ -17,6 +17,19 @@ source "$(dirname "$0")/common.sh"
 
 require_namespace
 
+# ── Ensure SSH port-forward is alive ──────────────────────────────────────────
+# kubectl port-forward dies when its backing pod is deleted (even when targeting
+# a Service). Kill any stale forward and start a fresh loop so the client can
+# reconnect after failover.
+step "Ensuring SSH port-forward is running"
+pkill -f "port-forward svc/tunnel-pod-ssh" 2>/dev/null || true
+sleep 1
+(while true; do
+  minikube kubectl -- -n "$NS" port-forward svc/tunnel-pod-ssh 30022:2222 2>/dev/null
+  sleep 2
+done) > /tmp/pf-ssh.log 2>&1 &
+ok "SSH port-forward restarted (PID $!)"
+
 header "Failover Demo — kubectl delete pod"
 
 # ── §10a  Find session + owning pod ───────────────────────────────────────────

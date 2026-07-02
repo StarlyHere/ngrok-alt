@@ -17,8 +17,8 @@ pod:
   # External hops use WSS/TLS in QA6; plaintext is allowed in-cluster for the POC
   # (PRD §9.2.5). Set pod.secure=true + server.ssl.* to serve wss/https.
   secure: ${POD_SECURE:false}
-  heartbeat-interval-ms: 5000
-  pod-ttl-ms: 15000
+  heartbeat-interval-ms: 3000
+  pod-ttl-ms: 6000
   session-ttl-ms: 15000
   max-streams-per-session: 256
   ssh-port: ${POD_SSH_PORT:2222}
