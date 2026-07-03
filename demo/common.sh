@@ -104,6 +104,30 @@ require_namespace() {
   fi
 }
 
+# ── Port-forward guard ─────────────────────────────────────────────────────────
+# Ensures both port-forwards are alive. Safe to call from any script.
+ensure_portforwards() {
+  if ! nc -z localhost 30092 2>/dev/null; then
+    info "Restarting coordinator port-forward..."
+    pkill -f "port-forward deploy/control" 2>/dev/null || true
+    minikube kubectl -- -n "$NS" port-forward deploy/control 30092:8090 \
+      > /tmp/pf-control.log 2>&1 &
+    sleep 2
+  fi
+  if ! nc -z localhost 30022 2>/dev/null; then
+    info "Restarting SSH port-forward..."
+    pkill -f "port-forward svc/tunnel-pod-ssh" 2>/dev/null || true
+    (while true; do
+      minikube kubectl -- -n "$NS" port-forward svc/tunnel-pod-ssh 30022:2222 2>/dev/null
+      sleep 2
+    done) > /tmp/pf-ssh.log 2>&1 &
+    sleep 2
+  fi
+  nc -z localhost 30022 2>/dev/null && nc -z localhost 30092 2>/dev/null \
+    && ok "Port-forwards alive (coordinator :30092, ssh :30022)" \
+    || warn "Port-forward check failed — check /tmp/pf-ssh.log"
+}
+
 # ── Pod ID for a session ───────────────────────────────────────────────────────
 pod_for_session() {
   local sess="$1"

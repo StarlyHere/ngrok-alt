@@ -109,6 +109,7 @@ public final class FrameCodec {
                     "Truncated frame: declared length " + length + " > available " + available);
         }
     }
+    
 
     private static void readFully(InputStream in, byte[] dst, int off, int len) throws IOException {
         int read = 0;

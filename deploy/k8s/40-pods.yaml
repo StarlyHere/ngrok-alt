@@ -1,4 +1,4 @@
-# Tunnel Pods — 5 replicas (PRD-v2.md §10; BUILD-CHECKLIST.md Part 5).
+# Tunnel Pods — 2 replicas.
 #
 # Each pod registers its OWN pod IP in Redis so the Router can reach it directly
 # in-cluster for HTTP forwarding (sticky path B). The Router always uses pod IPs
@@ -13,7 +13,7 @@ metadata:
   name: tunnel-pod
   namespace: tunnel
 spec:
-  replicas: 5
+  replicas: 2
   selector:
     matchLabels:
       app: tunnel-pod

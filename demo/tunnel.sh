@@ -10,6 +10,7 @@ set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
 require_namespace
+ensure_portforwards
 
 # Guard: refuse to run if no active sessions exist (laptop client not connected).
 sess_count=$(redis_exec keys 'session:*' | grep -c 'session:' || true)

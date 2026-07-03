@@ -20,8 +20,9 @@ out/
 *.bin
 client/client
 
-# Markdown docs
+# Markdown docs (keep README)
 *.md
+!README.md
 
 # Claude config
 .claude/

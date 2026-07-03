@@ -16,19 +16,7 @@ set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
 require_namespace
-
-# ── Ensure SSH port-forward is alive ──────────────────────────────────────────
-# kubectl port-forward dies when its backing pod is deleted (even when targeting
-# a Service). Kill any stale forward and start a fresh loop so the client can
-# reconnect after failover.
-step "Ensuring SSH port-forward is running"
-pkill -f "port-forward svc/tunnel-pod-ssh" 2>/dev/null || true
-sleep 1
-(while true; do
-  minikube kubectl -- -n "$NS" port-forward svc/tunnel-pod-ssh 30022:2222 2>/dev/null
-  sleep 2
-done) > /tmp/pf-ssh.log 2>&1 &
-ok "SSH port-forward restarted (PID $!)"
+ensure_portforwards
 
 header "Failover Demo — kubectl delete pod"
 
@@ -45,6 +33,16 @@ ok "Owning pod: ${VICTIM##*-}...  (full: $VICTIM)"
 # ── §10b  Kill the pod ────────────────────────────────────────────────────────
 step "Deleting owning pod"
 info "Kubernetes will restart it automatically. The Coordinator watches for the gap."
+
+# Restart the SSH port-forward loop right before killing the pod so a fresh
+# loop is guaranteed to be running when the connection drops.
+pkill -f "port-forward svc/tunnel-pod-ssh" 2>/dev/null || true
+sleep 1
+(while true; do
+  minikube kubectl -- -n "$NS" port-forward svc/tunnel-pod-ssh 30022:2222 2>/dev/null
+  sleep 2
+done) > /tmp/pf-ssh.log 2>&1 &
+
 kc -n "$NS" delete pod "$VICTIM" >/dev/null
 ok "Pod deleted: ${VICTIM##*-}..."
 
