@@ -90,7 +90,7 @@ wait_for_pod_registration() {
 # Block until a specific deployment has all replicas ready.
 wait_for_deploy() {
   local deploy="$1"
-  local timeout="${2:-180s}"
+  local timeout="${2:-300s}"
   kc -n "$NS" wait --for=condition=ready pod -l "app=$deploy" \
     --timeout="$timeout" >/dev/null
   ok "$deploy is ready"

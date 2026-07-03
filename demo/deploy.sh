@@ -68,7 +68,8 @@ else
   step "Loading images into Minikube"
   for module in dev-service control router pod client qa6-gateway; do
     info "Loading $module..."
-    minikube image load "$module/build/jib-image.tar"
+    minikube cp "$module/build/jib-image.tar" /tmp/jib-image.tar
+    minikube ssh "sudo ctr -n=k8s.io images import --all-platforms /tmp/jib-image.tar" >/dev/null
   done
   ok "All 6 images loaded"
 fi

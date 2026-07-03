@@ -29,9 +29,9 @@ spec:
               value: redis
           resources:
             requests:
-              memory: 140Mi
+              memory: 256Mi
             limits:
-              memory: 280Mi
+              memory: 512Mi
 ---
 apiVersion: v1
 kind: Service

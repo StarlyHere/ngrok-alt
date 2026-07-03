@@ -35,15 +35,16 @@ spec:
               value: http://router:8080
           readinessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/readiness
               port: 9000
-            initialDelaySeconds: 5
+            initialDelaySeconds: 20
             periodSeconds: 5
+            failureThreshold: 12
           resources:
             requests:
-              memory: 140Mi
+              memory: 256Mi
             limits:
-              memory: 280Mi
+              memory: 512Mi
 ---
 apiVersion: v1
 kind: Service
