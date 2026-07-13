@@ -62,15 +62,16 @@ else
     :router:jibBuildTar \
     :pod:jibBuildTar \
     :client:jibBuildTar \
-    :qa6-gateway:jibBuildTar
+    :qa6-gateway:jibBuildTar \
+    :webui-placeholder:jibBuildTar
   ok "Gradle build complete"
 
   step "Loading images into Minikube"
-  for module in dev-service control router pod client qa6-gateway; do
+  for module in dev-service control router pod client qa6-gateway webui-placeholder; do
     info "Loading $module..."
     minikube image load "$module/build/jib-image.tar"
   done
-  ok "All 6 images loaded"
+  ok "All 7 images loaded"
 fi
 
 # ── Resolve Minikube node IP ───────────────────────────────────────────────────
@@ -85,7 +86,7 @@ while kc get ns "$NS" >/dev/null 2>&1; do sleep 2; done
 ok "Namespace clean"
 
 # ── §4a  Core infrastructure ───────────────────────────────────────────────────
-step "Deploying core infrastructure (Redis · Coordinator · Router)"
+step "Deploying core infrastructure (Redis · Coordinator · Router · WebUI Placeholder)"
 kc apply \
   -f deploy/k8s/00-namespace.yaml \
   -f deploy/k8s/10-redis.yaml \
@@ -95,8 +96,9 @@ kc apply \
 sed "s|TUNNEL_URL_PLACEHOLDER|ssh://localhost:30022|g" \
   deploy/k8s/20-control.yaml | kc apply -f - >/dev/null
 kc apply -f deploy/k8s/30-router.yaml >/dev/null
+kc apply -f deploy/k8s/16-webui-placeholder.yaml >/dev/null
 
-for svc in redis control router; do
+for svc in redis control router webui-placeholder; do
   info "Waiting for $svc..."
   wait_for_deploy "$svc"
 done
@@ -128,18 +130,18 @@ else
     --timeout=120s >/dev/null
   ok "Nginx ingress controller ready"
 fi
+# The nginx admission webhook uses a self-signed cert the K8s API server can't
+# verify, causing ingress CRUD calls to fail with x509 errors. Removing it lets
+# the API server accept ingress objects without calling the webhook.
+kc delete validatingwebhookconfiguration ingress-nginx-admission --ignore-not-found >/dev/null
+ok "Nginx admission webhook removed (avoids x509 TLS error on ingress create)"
 
-step "Removing ingress admission webhook (allows configuration-snippet annotation)"
-kc delete validatingwebhookconfiguration ingress-nginx-admission \
-  --ignore-not-found >/dev/null
-ok "Admission webhook removed"
-
-# ── §4g  Final summary ────────────────────────────────────────────────────────
+# ── §4f  Final summary ────────────────────────────────────────────────────────
 step "Deployment complete"
 divider
 kc -n "$NS" get pods
 divider
-# ── §4h  Port-forwards (Podman driver doesn't expose NodePorts natively) ──────
+# ── §4g  Port-forwards (Podman driver doesn't expose NodePorts natively) ──────
 step "Starting port-forwards (coordinator :30092, tunnel-pod-ssh :30022)"
 # Kill any stale port-forward processes first.
 pkill -f "port-forward.*30092\|port-forward.*30091\|port-forward.*30022" 2>/dev/null || true
@@ -157,6 +159,12 @@ echo $! > /tmp/pf-control.pid
 done) > /tmp/pf-ssh.log 2>&1 &
 echo $! > /tmp/pf-ssh.pid
 
+# Nginx ingress: Podman driver does not expose NodePorts to the Mac host,
+# so port-forward the ingress controller to localhost:8888.
+minikube kubectl -- -n ingress-nginx port-forward svc/ingress-nginx-controller 8888:80 \
+  > /tmp/pf-ingress.log 2>&1 &
+echo $! > /tmp/pf-ingress.pid
+
 # Wait until both port-forwards are accepting connections.
 # SSH has no HTTP probe so we check that the port is open with nc.
 for i in $(seq 1 20); do
@@ -164,7 +172,7 @@ for i in $(seq 1 20); do
   nc -z localhost 30022 2>/dev/null && break
   sleep 1
 done
-ok "Port-forwards ready  (coordinator :30092, tunnel-pod-ssh :30022)"
+ok "Port-forwards ready  (coordinator :30092, tunnel-pod-ssh :30022, nginx :8888)"
 
 divider
 ok "Cluster ready."

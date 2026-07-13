@@ -1,0 +1,25 @@
+// WebUI Placeholder: in-cluster service representing webui-app-svc in production.
+// Returns a fixed JSON response for requests with no active tunnel session.
+
+plugins {
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+    id 'com.google.cloud.tools.jib'
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+}
+
+jib {
+    from { image = 'eclipse-temurin:21-jre-jammy' }
+    to {
+        image = 'tunnel/webui-placeholder'
+        tags = ['latest']
+    }
+    container {
+        ports = ['3000']
+        jvmFlags = ['-XX:MaxRAMPercentage=70.0', '-XX:+UseSerialGC']
+        creationTime = 'USE_CURRENT_TIMESTAMP'
+    }
+}

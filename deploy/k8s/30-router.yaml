@@ -27,6 +27,8 @@ spec:
               value: "-XX:TieredStopAtLevel=1 -XX:ActiveProcessorCount=2"
             - name: REDIS_HOST
               value: redis
+            - name: WEBUI_FALLBACK_URL
+              value: "http://webui-placeholder:3000"
           resources:
             requests:
               memory: 140Mi

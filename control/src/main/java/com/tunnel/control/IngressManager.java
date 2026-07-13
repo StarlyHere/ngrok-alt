@@ -40,7 +40,7 @@ public class IngressManager {
 
     static final String LABEL_MANAGED = "tunnel-managed";
     static final String LABEL_SESSION = "tunnel-session";
-    private static final String ROUTER_SERVICE = "dev-router-ms";
+    private static final String ROUTER_SERVICE = "router";
     private static final int ROUTER_PORT = 8080;
     private static final String PATH_TYPE_PREFIX = "Prefix";
 
@@ -65,10 +65,6 @@ public class IngressManager {
         String host = subdomain + "." + props.ingressDomain();
         List<String> patterns = parsePaths(pathPatterns);
 
-        // nginx annotation: injects X-Tunnel-Session header on every matched request.
-        // The existing RoutingFilter in the router reads this header — zero router changes.
-        String snippet = "more_set_headers \"X-Tunnel-Session: " + sessionId + "\";";
-
         List<io.fabric8.kubernetes.api.model.networking.v1.HTTPIngressPath> httpPaths = new ArrayList<>();
         for (String pattern : patterns) {
             // Kubernetes Ingress uses prefix paths; strip trailing /** for the prefix rule.
@@ -92,7 +88,6 @@ public class IngressManager {
                     .withName(name)
                     .withNamespace(props.ingressNamespace())
                     .withLabels(Map.of(LABEL_MANAGED, "true", LABEL_SESSION, sessionId))
-                    .addToAnnotations("nginx.ingress.kubernetes.io/configuration-snippet", snippet)
                 .endMetadata()
                 .withNewSpec()
                     .addNewRule()

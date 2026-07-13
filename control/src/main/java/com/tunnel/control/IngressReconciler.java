@@ -90,8 +90,12 @@ public class IngressReconciler {
             return;
         }
 
-        boolean sessionActive = SessionStatus.ACTIVE.name().equals(statusStr);
-        if (!sessionActive) {
+        // Keep ingress for PENDING (client connecting) and ACTIVE (connected) sessions.
+        // Only delete when the session is gone from Redis or explicitly closed/expired.
+        boolean shouldDelete = statusStr == null
+                || SessionStatus.EXPIRED.name().equals(statusStr)
+                || SessionStatus.CLOSED.name().equals(statusStr);
+        if (shouldDelete) {
             log.info("reconciler removing orphaned ingress {} (session {} status={})",
                     ingress.getMetadata().getName(), sessionId, statusStr == null ? "missing" : statusStr);
             ingressManager.deleteIngress(sessionId);

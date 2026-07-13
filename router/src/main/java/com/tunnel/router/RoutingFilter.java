@@ -5,6 +5,7 @@ import com.tunnel.protocol.TunnelConstants;
 import com.tunnel.router.PodResolver.PodTarget;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -23,6 +24,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -53,6 +55,12 @@ public class RoutingFilter extends OncePerRequestFilter {
             .followRedirects(HttpClient.Redirect.NEVER)
             .build();
 
+    @Value("${router.cookie-name:remoteDebugConf}")
+    private String cookieName;
+
+    @Value("${router.webui-fallback-url:}")
+    private String webuiFallbackUrl;
+
     public RoutingFilter(PodResolver resolver, RateLimiter rateLimiter,
                          io.micrometer.core.instrument.MeterRegistry meters) {
         this.resolver = resolver;
@@ -78,10 +86,9 @@ public class RoutingFilter extends OncePerRequestFilter {
         String traceId = ensureTrace(request);
         String sessionId = resolveSession(request);
         if (sessionId == null) {
-            log.info("trace {} → no session (host={}, header={}) → tunnel-not-found",
+            log.info("trace {} → no session (host={}, header={}) → webui fallback",
                     traceId, request.getHeader("Host"), request.getHeader(TunnelConstants.HEADER_SESSION));
-            count("not-found");
-            writeError(response, ErrorCodes.TUNNEL_NOT_FOUND);
+            forwardToWebUi(request, response, traceId, "no-session");
             return;
         }
 
@@ -95,9 +102,8 @@ public class RoutingFilter extends OncePerRequestFilter {
 
         Optional<PodTarget> target = resolver.targetForSession(sessionId);
         if (target.isEmpty()) {
-            log.info("trace {} → session {} has no live pod → tunnel-not-found", traceId, redact(sessionId));
-            count("not-found");
-            writeError(response, ErrorCodes.TUNNEL_NOT_FOUND);
+            log.info("trace {} → session {} has no live pod → webui fallback", traceId, redact(sessionId));
+            forwardToWebUi(request, response, traceId, "no-pod");
             return;
         }
 
@@ -158,14 +164,68 @@ public class RoutingFilter extends OncePerRequestFilter {
         response.getOutputStream().flush();
     }
 
-    /** Session id comes from the explicit header, or the Host subdomain. */
+    /** Session id: explicit header → remoteDebugConf cookie → Host subdomain. */
     private String resolveSession(HttpServletRequest request) {
+        // 1. explicit header (set by gateway or test tooling)
         String header = request.getHeader(TunnelConstants.HEADER_SESSION);
         if (header != null && !header.isBlank()) {
             return header;
         }
+        // 2. session cookie (browser WebUI path)
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie c : cookies) {
+                if (cookieName.equals(c.getName())) {
+                    return c.getValue();
+                }
+            }
+        }
+        // 3. subdomain (backward compat with Host-based routing)
         String subdomain = subdomainOf(request.getHeader("Host"));
         return resolver.sessionForSubdomain(subdomain).orElse(null);
+    }
+
+    /** Forward to webui-placeholder when no tunnel session is found. Falls back to 502 if not configured. */
+    private void forwardToWebUi(HttpServletRequest request, HttpServletResponse response,
+                                String traceId, String reason) throws IOException {
+        if (webuiFallbackUrl == null || webuiFallbackUrl.isBlank()) {
+            count("not-found");
+            writeError(response, ErrorCodes.TUNNEL_NOT_FOUND);
+            return;
+        }
+        String url = webuiFallbackUrl + request.getRequestURI()
+                + (request.getQueryString() == null ? "" : "?" + request.getQueryString());
+        log.info("trace {} → {} → webui-placeholder {}", traceId, reason, url);
+        count("webui-fallback");
+
+        byte[] body = request.getInputStream().readAllBytes();
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(30))
+                .method(request.getMethod(), body.length == 0
+                        ? HttpRequest.BodyPublishers.noBody()
+                        : HttpRequest.BodyPublishers.ofByteArray(body));
+
+        Enumeration<String> names = request.getHeaderNames();
+        while (names.hasMoreElements()) {
+            String name = names.nextElement();
+            if (RESTRICTED.contains(name.toLowerCase(Locale.ROOT))) {
+                continue;
+            }
+            for (String v : Collections.list(request.getHeaders(name))) {
+                b.header(name, v);
+            }
+        }
+        b.header(TunnelConstants.HEADER_TRACE, traceId);
+
+        try {
+            relay(response, httpClient.send(b.build(), HttpResponse.BodyHandlers.ofByteArray()));
+        } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            log.warn("trace {} → webui-placeholder forward failed: {}", traceId, e.toString());
+            writeError(response, ErrorCodes.TUNNEL_NOT_FOUND);
+        }
     }
 
     private static String subdomainOf(String host) {

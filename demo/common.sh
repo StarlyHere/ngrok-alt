@@ -123,8 +123,17 @@ ensure_portforwards() {
     done) > /tmp/pf-ssh.log 2>&1 &
     sleep 2
   fi
+  # Nginx ingress controller — needed for WebUI demo (Podman driver doesn't
+  # expose NodePorts to the Mac host, so we port-forward to localhost:8888).
+  if ! nc -z localhost 8888 2>/dev/null; then
+    info "Restarting nginx ingress port-forward..."
+    pkill -f "port-forward.*ingress-nginx" 2>/dev/null || true
+    minikube kubectl -- -n ingress-nginx port-forward svc/ingress-nginx-controller 8888:80 \
+      > /tmp/pf-ingress.log 2>&1 &
+    sleep 2
+  fi
   nc -z localhost 30022 2>/dev/null && nc -z localhost 30092 2>/dev/null \
-    && ok "Port-forwards alive (coordinator :30092, ssh :30022)" \
+    && ok "Port-forwards alive (coordinator :30092, ssh :30022, nginx :8888)" \
     || warn "Port-forward check failed — check /tmp/pf-ssh.log"
 }
 

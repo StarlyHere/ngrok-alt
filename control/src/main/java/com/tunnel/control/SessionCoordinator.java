@@ -107,28 +107,33 @@ public class SessionCoordinator {
 
         PodInfo pod = chosen.get();
 
-        String ingressName = null;
+        // Ingress creation is async — it involves a K8s API call (and potentially an
+        // admission webhook) that can take seconds. The assignment response is returned
+        // immediately; ingress creation completes in the background.
         if (req.createIngress() && ingressManager != null) {
-            try {
-                ingressName = ingressManager.createIngress(sessionId, subdomain, req.pathPatterns());
-            } catch (RuntimeException e) {
-                // Ingress creation is best-effort — tunnel still works without it.
-                log.warn("ingress creation failed for session {}: {}", Session.redact(sessionId), e.toString());
-            }
+            final String sid = sessionId;
+            final String sub = subdomain;
+            Thread.ofVirtual().name("ingress-create-" + Session.redact(sessionId)).start(() -> {
+                try {
+                    String name = ingressManager.createIngress(sid, sub, req.pathPatterns());
+                    // Patch ingress name into the session record once created.
+                    redis.opsForHash().put(RedisKeys.session(sid), RedisKeys.F_INGRESS_NAME, name);
+                } catch (RuntimeException e) {
+                    log.warn("ingress creation failed for session {}: {}", Session.redact(sid), e.toString());
+                }
+            });
         }
 
-        writeSession(sessionId, subdomain, ownerId, pod.id(), req.pathPatterns(), ingressName);
+        writeSession(sessionId, subdomain, ownerId, pod.id(), req.pathPatterns(), null);
         count(reconnect ? "reassigned" : "assigned");
 
-        log.info("{} session {} → subdomain {} → {} (strategy {}, {} live pods, pod conns {}{})",
+        log.info("{} session {} → subdomain {} → {} (strategy {}, {} live pods, pod conns {})",
                 reconnect ? "reassigned" : "assigned",
                 Session.redact(sessionId), subdomain, pod.id(),
-                strategy.name(), pods.size(), pod.conns(),
-                ingressName != null ? ", ingress=" + ingressName : "");
+                strategy.name(), pods.size(), pod.conns());
 
         String wsUrl = (props.tunnelUrl() != null && !props.tunnelUrl().isBlank())
-                ? props.tunnelUrl()
-                : pod.wsUrl();
+                ? props.tunnelUrl() : pod.wsUrl();
         return AssignmentResponse.ok(
                 sessionId, subdomain, pod.id(), wsUrl, props.heartbeatIntervalMs(), req.pathPatterns());
     }
