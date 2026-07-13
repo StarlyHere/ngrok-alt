@@ -119,7 +119,8 @@ public class TunnelClient {
         }
         log.info("requesting assignment from coordinator {} …", config.coordinatorEndpoint());
         AssignmentResponse a = coordinator.obtain(
-                new AssignmentRequest(config.ownerId(), config.targetPort(), sessionId));
+                new AssignmentRequest(config.ownerId(), config.targetPort(), sessionId,
+                        config.pathPatterns(), config.createIngress()));
         if (!a.accepted()) {
             throw new IOException("assignment rejected: " + a.errorCode());
         }
@@ -284,6 +285,14 @@ public class TunnelClient {
         TunnelConnection conn = current;
         if (conn != null) {
             conn.close();
+        }
+        // Tell the coordinator to delete the session (and its ingress) immediately.
+        if (coordinator != null && sessionId != null) {
+            try {
+                coordinator.deleteSession(sessionId);
+            } catch (Exception e) {
+                log.debug("session delete notification failed (coordinator may already be gone): {}", e.toString());
+            }
         }
         scheduler.shutdownNow();
         streamExecutor.shutdownNow();

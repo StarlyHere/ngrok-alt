@@ -9,7 +9,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -63,6 +65,22 @@ public class AssignmentController {
             case ErrorCodes.NO_POD_AVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
             default -> HttpStatus.BAD_REQUEST;
         };
+    }
+
+    /**
+     * Explicitly closes a session. The client calls this on clean shutdown so the
+     * ingress is deleted immediately rather than waiting for the reconciler (step 8).
+     * Requires the same bearer token that opened the session.
+     */
+    @DeleteMapping("/sessions/{sessionId}")
+    public ResponseEntity<Void> delete(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @PathVariable String sessionId) {
+        if (auth.ownerForAuthHeader(authorization).isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        coordinator.deleteSession(sessionId);
+        return ResponseEntity.noContent().build();
     }
 
     /** Liveness probe. */

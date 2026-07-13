@@ -67,11 +67,20 @@ public class TunnelCliRunner implements ApplicationRunner {
         // Default: go through the Coordinator (Part 3). --pod forces direct mode (Part 2 style).
         String directPod = optionOr(args, "pod", null);
         TunnelConfig config;
+        // --paths=ALL or --paths=/a/**,/b/c  (null → ALL, treated as "intercept everything")
+        String pathPatternsRaw = optionOr(args, "paths", null);
+        String pathPatterns = (pathPatternsRaw == null || pathPatternsRaw.isBlank()
+                || "ALL".equalsIgnoreCase(pathPatternsRaw.trim()))
+                ? null
+                : pathPatternsRaw.trim();
+        boolean createIngress = args.containsOption("create-ingress");
+
         if (directPod != null) {
             config = new TunnelConfig(
                     null, URI.create(directPod), targetHost, port,
                     sessionId != null ? sessionId : newSessionId(), owner, tokenStore.token(),
-                    "0.1.0-SNAPSHOT", inspectorPort, TunnelConstants.DEFAULT_HEARTBEAT_INTERVAL_MS);
+                    "0.1.0-SNAPSHOT", inspectorPort, TunnelConstants.DEFAULT_HEARTBEAT_INTERVAL_MS,
+                    pathPatterns, createIngress);
         } else {
             String token = optionOr(args, "token", tokenStore.token());
             if (token == null || token.isBlank()) {
@@ -81,7 +90,8 @@ public class TunnelCliRunner implements ApplicationRunner {
             URI coordinator = URI.create(optionOr(args, "coordinator",
                     System.getenv().getOrDefault("COORDINATOR_URL", DEFAULT_COORDINATOR)));
             config = new TunnelConfig(coordinator, null, targetHost, port, sessionId, owner, token,
-                    "0.1.0-SNAPSHOT", inspectorPort, TunnelConstants.DEFAULT_HEARTBEAT_INTERVAL_MS);
+                    "0.1.0-SNAPSHOT", inspectorPort, TunnelConstants.DEFAULT_HEARTBEAT_INTERVAL_MS,
+                    pathPatterns, createIngress);
         }
 
         String transport = optionOr(args, "transport", "ws");
@@ -127,6 +137,7 @@ public class TunnelCliRunner implements ApplicationRunner {
         log.info("usage:");
         log.info("  tunnel login [--user=<name>] [--coordinator=http://host:port]");
         log.info("  tunnel http <port> [--coordinator=http://host:port] "
-                + "[--pod=ws://host:port/tunnel] [--transport=ws|ssh] [--inspector=4040] [--session=<id>]");
+                + "[--pod=ws://host:port/tunnel] [--transport=ws|ssh] [--inspector=4040] "
+                + "[--session=<id>] [--paths=ALL|/a/**,/b/c] [--create-ingress]");
     }
 }

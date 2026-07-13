@@ -23,10 +23,12 @@ public class CoordinatorClient {
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
             .build();
+    private final URI coordinatorBase;
     private final URI sessionsEndpoint;
     private final String token;
 
     public CoordinatorClient(URI coordinatorBase, String token) {
+        this.coordinatorBase = coordinatorBase;
         this.sessionsEndpoint = coordinatorBase.resolve("/sessions");
         this.token = token;
     }
@@ -49,5 +51,20 @@ public class CoordinatorClient {
             throw new IOException("coordinator returned HTTP " + response.statusCode());
         }
         return AssignmentCodec.decodeResponse(response.body());
+    }
+
+    /**
+     * Notifies the coordinator that the session is closing so it can delete the
+     * ingress immediately. Best-effort — failures are logged by the caller.
+     */
+    public void deleteSession(String sessionId) throws IOException, InterruptedException {
+        URI endpoint = coordinatorBase.resolve("/sessions/" + sessionId);
+        HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint)
+                .timeout(Duration.ofSeconds(5))
+                .DELETE();
+        if (token != null && !token.isBlank()) {
+            builder.header(TunnelConstants.HEADER_AUTHORIZATION, TunnelConstants.BEARER_PREFIX + token);
+        }
+        http.send(builder.build(), HttpResponse.BodyHandlers.discarding());
     }
 }

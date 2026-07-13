@@ -90,10 +90,19 @@ public class GatewayFilter extends OncePerRequestFilter {
         }
         String sessionId = session.get();
 
-        switch (gate.validate(sessionId)) {
+        SessionGate.ValidationResult validation = gate.validate(sessionId);
+        switch (validation.result()) {
             case VALID -> {
-                count("forwarded");
-                forwardToRouter(request, response, sessionId, traceId);
+                String requestPath = request.getRequestURI();
+                if (!PathMatcher.matches(validation.pathPatterns(), requestPath)) {
+                    log.debug("trace {} → session {} → path {} not in allowlist → normal QA6",
+                            traceId, redact(sessionId), requestPath);
+                    count("path-not-matched");
+                    writeNormal(response);
+                } else {
+                    count("forwarded");
+                    forwardToRouter(request, response, sessionId, traceId);
+                }
             }
             case INVALID -> {
                 if (props.strictNotFound()) {

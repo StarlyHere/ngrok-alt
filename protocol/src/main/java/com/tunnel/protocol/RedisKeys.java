@@ -51,6 +51,10 @@ public final class RedisKeys {
     public static final String F_POD_ID = "podId";
     public static final String F_STATUS = "status";
     public static final String F_CREATED_AT = "createdAt";
+    /** Comma-separated Ant path patterns; absent or "ALL" means intercept everything. */
+    public static final String F_PATH_PATTERNS = "pathPatterns";
+    /** Name of the temporary Kubernetes Ingress for this session; absent if none. */
+    public static final String F_INGRESS_NAME = "ingressName";
 
     // --- pod hash fields ---
 

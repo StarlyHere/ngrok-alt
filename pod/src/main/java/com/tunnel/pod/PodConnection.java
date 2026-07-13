@@ -122,7 +122,7 @@ public class PodConnection {
 
         Session session = new Session(
                 sessionId, deriveSubdomain(sessionId), ownerId, props.id(),
-                SessionStatus.ACTIVE, System.currentTimeMillis());
+                SessionStatus.ACTIVE, System.currentTimeMillis(), null, null);
         RegisterAck ack = RegisterAck.ok(session, props.id(), props.heartbeatIntervalMs());
         mux.sendControl(FrameType.REGISTER_ACK, ControlCodec.encodeRegisterAck(ack));
         log.info("session {} registered on {} (owner '{}') -> 127.0.0.1:{}",

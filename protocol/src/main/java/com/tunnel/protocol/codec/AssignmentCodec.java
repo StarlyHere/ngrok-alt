@@ -28,6 +28,8 @@ public final class AssignmentCodec {
             out.writeUTF(nz(r.ownerId()));
             out.writeInt(r.targetPort());
             out.writeUTF(nz(r.existingSessionId()));
+            out.writeUTF(nz(r.pathPatterns()));
+            out.writeBoolean(r.createIngress());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -39,7 +41,9 @@ public final class AssignmentCodec {
             String ownerId = in.readUTF();
             int targetPort = in.readInt();
             String existing = emptyToNull(in.readUTF());
-            return new AssignmentRequest(ownerId, targetPort, existing);
+            String pathPatterns = emptyToNull(in.readUTF());
+            boolean createIngress = in.readBoolean();
+            return new AssignmentRequest(ownerId, targetPort, existing, pathPatterns, createIngress);
         } catch (IOException e) {
             throw new IllegalArgumentException("malformed assignment request", e);
         }
@@ -54,6 +58,7 @@ public final class AssignmentCodec {
             out.writeUTF(nz(r.podWsUrl()));
             out.writeLong(r.heartbeatIntervalMs());
             out.writeUTF(nz(r.errorCode()));
+            out.writeUTF(nz(r.pathPatterns()));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -68,7 +73,8 @@ public final class AssignmentCodec {
             String podWsUrl = emptyToNull(in.readUTF());
             long heartbeat = in.readLong();
             String errorCode = emptyToNull(in.readUTF());
-            return new AssignmentResponse(sessionId, subdomain, podId, podWsUrl, heartbeat, errorCode);
+            String pathPatterns = emptyToNull(in.readUTF());
+            return new AssignmentResponse(sessionId, subdomain, podId, podWsUrl, heartbeat, errorCode, pathPatterns);
         } catch (IOException e) {
             throw new IllegalArgumentException("malformed assignment response", e);
         }

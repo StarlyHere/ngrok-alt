@@ -116,12 +116,30 @@ step "Seeding bearer token for owner 'alice'"
 kc apply -f deploy/k8s/50-token-seed.yaml >/dev/null
 ok "Token seeded"
 
-# ── §4e  Final summary ────────────────────────────────────────────────────────
+# ── §4e  Nginx ingress addon (required for Enhancement 2 — WebUI ingress) ─────
+step "Enabling nginx ingress addon"
+if minikube addons list | grep -q 'ingress.*enabled'; then
+  ok "Nginx ingress addon already enabled"
+else
+  minikube addons enable ingress
+  info "Waiting for ingress-nginx controller to be ready..."
+  kc -n ingress-nginx wait --for=condition=ready pod \
+    -l app.kubernetes.io/component=controller \
+    --timeout=120s >/dev/null
+  ok "Nginx ingress controller ready"
+fi
+
+step "Removing ingress admission webhook (allows configuration-snippet annotation)"
+kc delete validatingwebhookconfiguration ingress-nginx-admission \
+  --ignore-not-found >/dev/null
+ok "Admission webhook removed"
+
+# ── §4g  Final summary ────────────────────────────────────────────────────────
 step "Deployment complete"
 divider
 kc -n "$NS" get pods
 divider
-# ── §4f  Port-forwards (Podman driver doesn't expose NodePorts natively) ──────
+# ── §4h  Port-forwards (Podman driver doesn't expose NodePorts natively) ──────
 step "Starting port-forwards (coordinator :30092, tunnel-pod-ssh :30022)"
 # Kill any stale port-forward processes first.
 pkill -f "port-forward.*30092\|port-forward.*30091\|port-forward.*30022" 2>/dev/null || true
@@ -149,12 +167,25 @@ done
 ok "Port-forwards ready  (coordinator :30092, tunnel-pod-ssh :30022)"
 
 divider
-ok "Cluster ready.  Now on your laptop:"
-info "  1. Start your Spring Boot app on port 3000"
-info "  2. Run the tunnel client:"
+ok "Cluster ready."
+echo ""
+info "── Enhancement 1: Selective path routing ──────────────────────────────────"
+info "  1. Start dev-service on port 3000:"
+info "       ./gradlew :dev-service:bootRun"
+info "  2. Start the tunnel client:"
 info "       java -jar client/build/libs/client-0.1.0-SNAPSHOT.jar \\"
-info "         http 3000 \\"
-info "         --transport=ssh \\"
+info "         http 3000 --transport=ssh \\"
 info "         --coordinator=http://localhost:30092 \\"
 info "         --token=demo-alice-7f3c9a2b1e6d4058"
-info "  3. Then run  demo/status.sh  and  demo/tunnel.sh"
+info "  3. Run demo/tunnel.sh to prove routing"
+echo ""
+info "── Enhancement 2: WebUI ingress lifecycle ─────────────────────────────────"
+info "  1. Start webui-sim on port 4000:"
+info "       ./gradlew :webui-sim:bootRun"
+info "  2. Start the tunnel client with path filter + ingress creation:"
+info "       java -jar client/build/libs/client-0.1.0-SNAPSHOT.jar \\"
+info "         http 4000 --transport=ssh \\"
+info "         --coordinator=http://localhost:30092 \\"
+info "         --token=demo-alice-7f3c9a2b1e6d4058 \\"
+info "         '--paths=/ui/graphql/**' --create-ingress"
+info "  3. Run demo/webui.sh to prove ingress creation + selective routing"

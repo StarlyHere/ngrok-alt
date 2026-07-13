@@ -76,9 +76,13 @@ class GatewayFilterTest {
         assertTrue(resp.getContentAsString().contains("\"route\":\"normal\""));
     }
 
+    private static SessionGate.ValidationResult valid(String pathPatterns) {
+        return SessionGate.ValidationResult.of(SessionGate.Result.VALID, pathPatterns);
+    }
+
     @Test
     void validSessionViaHeaderIsForwardedToRouter() throws Exception {
-        when(gate.validate("sess-abc")).thenReturn(SessionGate.Result.VALID);
+        when(gate.validate("sess-abc")).thenReturn(valid(null));
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/hello");
         req.addHeader("X-Tunnel-Session", "sess-abc");
 
@@ -92,7 +96,7 @@ class GatewayFilterTest {
 
     @Test
     void validSessionViaCookieIsForwarded() throws Exception {
-        when(gate.validate("sess-cookie")).thenReturn(SessionGate.Result.VALID);
+        when(gate.validate("sess-cookie")).thenReturn(valid(null));
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/hello");
         req.setCookies(new Cookie("remoteDebugConf", "sess-cookie"));
 
@@ -103,8 +107,33 @@ class GatewayFilterTest {
     }
 
     @Test
+    void matchingPathPatternIsForwarded() throws Exception {
+        when(gate.validate("sess-path")).thenReturn(valid("/process/**,/ui/graphql/**"));
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/process/start");
+        req.addHeader("X-Tunnel-Session", "sess-path");
+
+        MockHttpServletResponse resp = run(req);
+
+        assertEquals(200, resp.getStatus());
+        assertEquals("sess-path", seenSession.get());
+    }
+
+    @Test
+    void nonMatchingPathPatternFallsThroughToNormalQA6() throws Exception {
+        when(gate.validate("sess-path")).thenReturn(valid("/process/**"));
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/unrelated/endpoint");
+        req.addHeader("X-Tunnel-Session", "sess-path");
+
+        MockHttpServletResponse resp = run(req);
+
+        assertEquals(200, resp.getStatus());
+        assertTrue(resp.getContentAsString().contains("\"route\":\"normal\""));
+        assertNull(seenSession.get(), "router must not have been called");
+    }
+
+    @Test
     void invalidSessionReturnsTunnelNotFound() throws Exception {
-        when(gate.validate("bad")).thenReturn(SessionGate.Result.INVALID);
+        when(gate.validate("bad")).thenReturn(SessionGate.ValidationResult.of(SessionGate.Result.INVALID));
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/hello");
         req.addHeader("X-Tunnel-Session", "bad");
 
@@ -117,7 +146,7 @@ class GatewayFilterTest {
 
     @Test
     void redisErrorFailsClosed() throws Exception {
-        when(gate.validate("x")).thenReturn(SessionGate.Result.REDIS_ERROR);
+        when(gate.validate("x")).thenReturn(SessionGate.ValidationResult.of(SessionGate.Result.REDIS_ERROR));
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/hello");
         req.addHeader("X-Tunnel-Session", "x");
 

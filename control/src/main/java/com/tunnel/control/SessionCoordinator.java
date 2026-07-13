@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.lang.Nullable;
 
 /**
  * The Coordinator's brain (PRD-v2.md §4 path A, §10): issue a cryptographically
@@ -40,15 +41,19 @@ public class SessionCoordinator {
     private final ControlProperties props;
     private final MeterRegistry meters;
     private final Map<String, LoadStrategy> strategies = new LinkedHashMap<>();
+    @Nullable
+    private final IngressManager ingressManager;
 
     public SessionCoordinator(StringRedisTemplate redis, PodDirectory podDirectory,
                               SubdomainGenerator subdomains, ControlProperties props,
-                              MeterRegistry meters, List<LoadStrategy> loadStrategies) {
+                              MeterRegistry meters, List<LoadStrategy> loadStrategies,
+                              Optional<IngressManager> ingressManager) {
         this.redis = redis;
         this.podDirectory = podDirectory;
         this.subdomains = subdomains;
         this.props = props;
         this.meters = meters;
+        this.ingressManager = ingressManager.orElse(null);
         for (LoadStrategy s : loadStrategies) {
             strategies.put(s.name(), s);
         }
@@ -101,22 +106,50 @@ public class SessionCoordinator {
         }
 
         PodInfo pod = chosen.get();
-        writeSession(sessionId, subdomain, ownerId, pod.id());
+
+        String ingressName = null;
+        if (req.createIngress() && ingressManager != null) {
+            try {
+                ingressName = ingressManager.createIngress(sessionId, subdomain, req.pathPatterns());
+            } catch (RuntimeException e) {
+                // Ingress creation is best-effort — tunnel still works without it.
+                log.warn("ingress creation failed for session {}: {}", Session.redact(sessionId), e.toString());
+            }
+        }
+
+        writeSession(sessionId, subdomain, ownerId, pod.id(), req.pathPatterns(), ingressName);
         count(reconnect ? "reassigned" : "assigned");
 
-        log.info("{} session {} → subdomain {} → {} (strategy {}, {} live pods, pod conns {})",
+        log.info("{} session {} → subdomain {} → {} (strategy {}, {} live pods, pod conns {}{})",
                 reconnect ? "reassigned" : "assigned",
                 Session.redact(sessionId), subdomain, pod.id(),
-                strategy.name(), pods.size(), pod.conns());
+                strategy.name(), pods.size(), pod.conns(),
+                ingressName != null ? ", ingress=" + ingressName : "");
 
         String wsUrl = (props.tunnelUrl() != null && !props.tunnelUrl().isBlank())
                 ? props.tunnelUrl()
                 : pod.wsUrl();
         return AssignmentResponse.ok(
-                sessionId, subdomain, pod.id(), wsUrl, props.heartbeatIntervalMs());
+                sessionId, subdomain, pod.id(), wsUrl, props.heartbeatIntervalMs(), req.pathPatterns());
     }
 
-    private void writeSession(String sessionId, String subdomain, String ownerId, String podId) {
+    /**
+     * Explicitly closes a session: deletes its temporary ingress (if any) and
+     * removes the session key from Redis immediately rather than waiting for TTL expiry.
+     * No-op if the session is already gone.
+     */
+    public void deleteSession(String sessionId) {
+        String key = RedisKeys.session(sessionId);
+        Object ingressNameObj = redis.opsForHash().get(key, RedisKeys.F_INGRESS_NAME);
+        if (ingressNameObj != null && ingressManager != null) {
+            ingressManager.deleteIngress(sessionId);
+        }
+        redis.delete(key);
+        log.info("session deleted: {}", Session.redact(sessionId));
+    }
+
+    private void writeSession(String sessionId, String subdomain, String ownerId, String podId,
+                              String pathPatterns, String ingressName) {
         String key = RedisKeys.session(sessionId);
         Map<String, String> fields = new LinkedHashMap<>();
         fields.put(RedisKeys.F_OWNER_ID, nz(ownerId));
@@ -124,6 +157,12 @@ public class SessionCoordinator {
         fields.put(RedisKeys.F_POD_ID, podId);
         fields.put(RedisKeys.F_STATUS, SessionStatus.PENDING.name());
         fields.put(RedisKeys.F_CREATED_AT, String.valueOf(System.currentTimeMillis()));
+        if (pathPatterns != null && !pathPatterns.isBlank()) {
+            fields.put(RedisKeys.F_PATH_PATTERNS, pathPatterns);
+        }
+        if (ingressName != null) {
+            fields.put(RedisKeys.F_INGRESS_NAME, ingressName);
+        }
 
         Duration ttl = Duration.ofMillis(props.sessionTtlMs());
         redis.opsForHash().putAll(key, fields);

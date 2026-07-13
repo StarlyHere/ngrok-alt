@@ -23,6 +23,11 @@ import java.net.URI;
  * @param clientVersion       client binary version string
  * @param inspectorPort       local request inspector port (default 4040)
  * @param heartbeatIntervalMs heartbeat cadence (overridden by the pod's ACK)
+ * @param pathPatterns        comma-separated Ant path patterns to intercept
+ *                            (e.g. {@code "/process/**,/ui/graphql/**"}); {@code null}
+ *                            means intercept everything (treated as "ALL")
+ * @param createIngress       if {@code true} the coordinator will create a temporary
+ *                            Kubernetes Ingress for this session (WebUI mode)
  */
 public record TunnelConfig(
         URI coordinatorEndpoint,
@@ -34,7 +39,9 @@ public record TunnelConfig(
         String token,
         String clientVersion,
         int inspectorPort,
-        long heartbeatIntervalMs) {
+        long heartbeatIntervalMs,
+        String pathPatterns,
+        boolean createIngress) {
 
     public boolean directMode() {
         return directPodEndpoint != null;

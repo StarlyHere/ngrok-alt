@@ -15,6 +15,7 @@ spec:
       labels:
         app: control
     spec:
+      serviceAccountName: tunnel-coordinator
       containers:
         - name: control
           image: tunnel/control:latest
@@ -34,6 +35,10 @@ spec:
             # Override with the real node IP when running outside Minikube.
             - name: CONTROL_TUNNEL_URL
               value: "TUNNEL_URL_PLACEHOLDER"
+            - name: INGRESS_ENABLED
+              value: "true"
+            - name: INGRESS_DOMAIN
+              value: "tunnel.local"
           readinessProbe:
             httpGet:
               path: /healthz
@@ -57,6 +62,38 @@ spec:
   ports:
     - port: 8090
       targetPort: 8090
+---
+# RBAC — coordinator needs get/list/create/delete on ingresses only.
+# Least-privilege: no access to secrets, pods, or any other resource.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tunnel-coordinator
+  namespace: tunnel
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tunnel-coordinator-ingress-manager
+  namespace: tunnel
+rules:
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "create", "delete", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tunnel-coordinator-ingress-manager
+  namespace: tunnel
+subjects:
+  - kind: ServiceAccount
+    name: tunnel-coordinator
+    namespace: tunnel
+roleRef:
+  kind: Role
+  name: tunnel-coordinator-ingress-manager
+  apiGroup: rbac.authorization.k8s.io
 ---
 # NodePort for external access — developer laptops reach the Coordinator at
 # http://<minikube-ip>:30090/sessions to obtain a pod assignment.

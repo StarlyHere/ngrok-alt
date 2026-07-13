@@ -22,30 +22,47 @@ public class SessionGate {
     /** Outcome of the gate check. */
     public enum Result { VALID, INVALID, REDIS_ERROR }
 
+    /**
+     * Combined result: the validity outcome plus the session's path-pattern
+     * allowlist (null = ALL, meaning intercept everything).
+     */
+    public record ValidationResult(Result result, String pathPatterns) {
+        public static ValidationResult of(Result result, String pathPatterns) {
+            return new ValidationResult(result, pathPatterns);
+        }
+        public static ValidationResult of(Result result) {
+            return new ValidationResult(result, null);
+        }
+    }
+
     private final StringRedisTemplate redis;
 
     public SessionGate(StringRedisTemplate redis) {
         this.redis = redis;
     }
 
-    public Result validate(String sessionId) {
+    public ValidationResult validate(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {
-            return Result.INVALID;
+            return ValidationResult.of(Result.INVALID);
         }
         try {
             Map<Object, Object> session = redis.opsForHash().entries(RedisKeys.session(sessionId));
             if (session == null || session.isEmpty()) {
-                return Result.INVALID; // unknown or expired
+                return ValidationResult.of(Result.INVALID);
             }
             String status = str(session.get(RedisKeys.F_STATUS));
             String podId = str(session.get(RedisKeys.F_POD_ID));
             boolean active = SessionStatus.ACTIVE.name().equals(status);
             boolean hasPod = podId != null && !podId.isBlank();
-            return (active && hasPod) ? Result.VALID : Result.INVALID;
+            if (!active || !hasPod) {
+                return ValidationResult.of(Result.INVALID);
+            }
+            String pathPatterns = str(session.get(RedisKeys.F_PATH_PATTERNS));
+            return ValidationResult.of(Result.VALID, pathPatterns);
         } catch (RuntimeException e) {
             // Redis unreachable / data-access failure → caller decides fail-open vs fail-closed.
             log.warn("redis error validating session: {}", e.toString());
-            return Result.REDIS_ERROR;
+            return ValidationResult.of(Result.REDIS_ERROR);
         }
     }
 

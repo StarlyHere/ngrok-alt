@@ -1,6 +1,7 @@
 package com.tunnel.qa6gateway;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -28,36 +29,53 @@ class SessionGateTest {
     @Test
     void activeSessionWithPodIsValid() {
         SessionGate gate = gateReturning(Map.of("status", "ACTIVE", "podId", "pod-1"));
-        assertEquals(SessionGate.Result.VALID, gate.validate("abc123"));
+        assertEquals(SessionGate.Result.VALID, gate.validate("abc123").result());
+    }
+
+    @Test
+    void activeSessionReturnsStoredPathPatterns() {
+        SessionGate gate = gateReturning(Map.of("status", "ACTIVE", "podId", "pod-1",
+                "pathPatterns", "/api/**,/graphql"));
+        SessionGate.ValidationResult v = gate.validate("abc123");
+        assertEquals(SessionGate.Result.VALID, v.result());
+        assertEquals("/api/**,/graphql", v.pathPatterns());
+    }
+
+    @Test
+    void activeSessionWithNoPatternsReturnsNullPathPatterns() {
+        SessionGate gate = gateReturning(Map.of("status", "ACTIVE", "podId", "pod-1"));
+        SessionGate.ValidationResult v = gate.validate("abc123");
+        assertEquals(SessionGate.Result.VALID, v.result());
+        assertNull(v.pathPatterns());
     }
 
     @Test
     void unknownOrExpiredSessionIsInvalid() {
         SessionGate gate = gateReturning(Map.of());
-        assertEquals(SessionGate.Result.INVALID, gate.validate("abc123"));
+        assertEquals(SessionGate.Result.INVALID, gate.validate("abc123").result());
     }
 
     @Test
     void pendingStatusIsInvalid() {
         SessionGate gate = gateReturning(Map.of("status", "PENDING", "podId", "pod-1"));
-        assertEquals(SessionGate.Result.INVALID, gate.validate("abc123"));
+        assertEquals(SessionGate.Result.INVALID, gate.validate("abc123").result());
     }
 
     @Test
     void activeButNoPodIsInvalid() {
         SessionGate gate = gateReturning(Map.of("status", "ACTIVE"));
-        assertEquals(SessionGate.Result.INVALID, gate.validate("abc123"));
+        assertEquals(SessionGate.Result.INVALID, gate.validate("abc123").result());
     }
 
     @Test
     void blankSessionIdIsInvalid() {
         SessionGate gate = gateReturning(Map.of());
-        assertEquals(SessionGate.Result.INVALID, gate.validate("  "));
+        assertEquals(SessionGate.Result.INVALID, gate.validate("  ").result());
     }
 
     @Test
     void redisFailureIsRedisError() {
         SessionGate gate = gateReturning(new RuntimeException("connection refused"));
-        assertEquals(SessionGate.Result.REDIS_ERROR, gate.validate("abc123"));
+        assertEquals(SessionGate.Result.REDIS_ERROR, gate.validate("abc123").result());
     }
 }

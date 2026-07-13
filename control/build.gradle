@@ -13,6 +13,9 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+    // Kubernetes client for ingress lifecycle management (steps 6-8).
+    // 6.x auto-detects in-cluster ServiceAccount token from the standard mount path.
+    implementation 'io.fabric8:kubernetes-client:6.13.4'
 }
 
 jib {

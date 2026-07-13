@@ -15,6 +15,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param maxSessionsPerOwner  quota: concurrent sessions one owner may hold (§9.2.6)
  * @param tunnelUrl            public WebSocket URL returned to clients in AssignmentResponse;
  *                             set via CONTROL_TUNNEL_URL env var; falls back to pod IP when blank
+ * @param ingressEnabled       feature flag — enables ingress lifecycle management (default false)
+ * @param ingressDomain        base domain for per-session ingress hostnames
+ *                             (e.g. {@code space-qa6.sprinklr.com})
+ * @param ingressNamespace     Kubernetes namespace where temporary ingresses are created
  */
 @ConfigurationProperties(prefix = "control")
 public record ControlProperties(
@@ -23,7 +27,10 @@ public record ControlProperties(
         String loadStrategy,
         long tokenTtlMs,
         int maxSessionsPerOwner,
-        String tunnelUrl) {
+        String tunnelUrl,
+        boolean ingressEnabled,
+        String ingressDomain,
+        String ingressNamespace) {
 
     public ControlProperties {
         if (sessionTtlMs <= 0) {
@@ -40,6 +47,12 @@ public record ControlProperties(
         }
         if (maxSessionsPerOwner <= 0) {
             maxSessionsPerOwner = TunnelConstants.DEFAULT_MAX_SESSIONS_PER_OWNER;
+        }
+        if (ingressDomain == null || ingressDomain.isBlank()) {
+            ingressDomain = "space-qa6.sprinklr.com";
+        }
+        if (ingressNamespace == null || ingressNamespace.isBlank()) {
+            ingressNamespace = "tunnel";
         }
     }
 }

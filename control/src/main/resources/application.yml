@@ -17,6 +17,10 @@ control:
   token-ttl-ms: 604800000        # 7 days
   max-sessions-per-owner: ${MAX_SESSIONS_PER_OWNER:5}
   tunnel-url: ${CONTROL_TUNNEL_URL:}
+  ingress-enabled: ${INGRESS_ENABLED:false}
+  ingress-domain: ${INGRESS_DOMAIN:space-qa6.sprinklr.com}
+  ingress-namespace: ${INGRESS_NAMESPACE:tunnel}
+  ingress-reconcile-ms: ${INGRESS_RECONCILE_MS:60000}
 
 management:
   endpoints:

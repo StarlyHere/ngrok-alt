@@ -105,6 +105,8 @@ public final class ControlCodec {
         out.writeUTF(nz(s.podId()));
         out.writeUTF(s.status() == null ? SessionStatus.PENDING.name() : s.status().name());
         out.writeLong(s.createdAtEpochMs());
+        out.writeUTF(nz(s.pathPatterns()));
+        out.writeUTF(nz(s.ingressName()));
     }
 
     private static Session readSession(DataInputStream in) throws IOException {
@@ -117,7 +119,9 @@ public final class ControlCodec {
                 emptyToNull(in.readUTF()),
                 emptyToNull(in.readUTF()),
                 SessionStatus.valueOf(in.readUTF()),
-                in.readLong());
+                in.readLong(),
+                emptyToNull(in.readUTF()),
+                emptyToNull(in.readUTF()));
     }
 
     // --- tiny functional helpers ---
