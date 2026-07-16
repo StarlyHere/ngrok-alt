@@ -61,13 +61,13 @@ else
     :control:jibBuildTar \
     :router:jibBuildTar \
     :pod:jibBuildTar \
-    :client:jibBuildTar \
     :qa6-gateway:jibBuildTar \
-    :webui-placeholder:jibBuildTar
+    :webui-placeholder:jibBuildTar \
+    :kafka-producer-sim:jibBuildTar
   ok "Gradle build complete"
 
   step "Loading images into Minikube"
-  for module in dev-service control router pod client qa6-gateway webui-placeholder; do
+  for module in dev-service control router pod qa6-gateway webui-placeholder kafka-producer-sim; do
     info "Loading $module..."
     minikube image load "$module/build/jib-image.tar"
   done
@@ -86,11 +86,12 @@ while kc get ns "$NS" >/dev/null 2>&1; do sleep 2; done
 ok "Namespace clean"
 
 # ── §4a  Core infrastructure ───────────────────────────────────────────────────
-step "Deploying core infrastructure (Redis · Coordinator · Router · WebUI Placeholder)"
+step "Deploying core infrastructure (Redis · Redpanda · Coordinator · Router · WebUI Placeholder)"
 kc apply \
   -f deploy/k8s/00-namespace.yaml \
   -f deploy/k8s/10-redis.yaml \
   >/dev/null
+kc apply -f deploy/k8s/70-redpanda.yaml >/dev/null
 # Patch TUNNEL_URL_PLACEHOLDER with the real node IP so the Coordinator
 # returns a URL the laptop client can actually reach.
 sed "s|TUNNEL_URL_PLACEHOLDER|ssh://localhost:30022|g" \
@@ -98,7 +99,7 @@ sed "s|TUNNEL_URL_PLACEHOLDER|ssh://localhost:30022|g" \
 kc apply -f deploy/k8s/30-router.yaml >/dev/null
 kc apply -f deploy/k8s/16-webui-placeholder.yaml >/dev/null
 
-for svc in redis control router webui-placeholder; do
+for svc in redis redpanda control router webui-placeholder; do
   info "Waiting for $svc..."
   wait_for_deploy "$svc"
 done
@@ -197,3 +198,13 @@ info "         --coordinator=http://localhost:30092 \\"
 info "         --token=demo-alice-7f3c9a2b1e6d4058 \\"
 info "         '--paths=/ui/graphql/**' --create-ingress"
 info "  3. Run demo/webui.sh to prove ingress creation + selective routing"
+echo ""
+info "── Enhancement 3: Kafka async interception ────────────────────────────────"
+info "  1. Start webui-sim on port 4000:"
+info "       ./gradlew :webui-sim:bootRun"
+info "  2. Start the tunnel client:"
+info "       java -jar client/build/libs/client-0.1.0-SNAPSHOT.jar \\"
+info "         http 4000 --transport=ssh \\"
+info "         --coordinator=http://localhost:30092 \\"
+info "         --token=demo-alice-7f3c9a2b1e6d4058"
+info "  3. Run demo/kafka.sh to prove Kafka interception + session isolation"

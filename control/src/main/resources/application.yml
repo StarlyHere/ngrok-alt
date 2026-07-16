@@ -9,6 +9,9 @@ spring:
       host: ${REDIS_HOST:localhost}
       # NB: not ${REDIS_PORT} — k8s injects REDIS_PORT=tcp://… for the redis Service.
       port: 6379
+  kafka:
+    admin:
+      bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka-bootstrap:9092}
 
 control:
   session-ttl-ms: 15000
@@ -21,6 +24,7 @@ control:
   ingress-domain: ${INGRESS_DOMAIN:space-qa6.sprinklr.com}
   ingress-namespace: ${INGRESS_NAMESPACE:tunnel}
   ingress-reconcile-ms: ${INGRESS_RECONCILE_MS:60000}
+  kafka-enabled: ${KAFKA_ENABLED:false}
 
 management:
   endpoints:

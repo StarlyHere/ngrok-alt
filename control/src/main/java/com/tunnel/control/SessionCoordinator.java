@@ -43,17 +43,21 @@ public class SessionCoordinator {
     private final Map<String, LoadStrategy> strategies = new LinkedHashMap<>();
     @Nullable
     private final IngressManager ingressManager;
+    @Nullable
+    private final KafkaManager kafkaManager;
 
     public SessionCoordinator(StringRedisTemplate redis, PodDirectory podDirectory,
                               SubdomainGenerator subdomains, ControlProperties props,
                               MeterRegistry meters, List<LoadStrategy> loadStrategies,
-                              Optional<IngressManager> ingressManager) {
+                              Optional<IngressManager> ingressManager,
+                              Optional<KafkaManager> kafkaManager) {
         this.redis = redis;
         this.podDirectory = podDirectory;
         this.subdomains = subdomains;
         this.props = props;
         this.meters = meters;
         this.ingressManager = ingressManager.orElse(null);
+        this.kafkaManager = kafkaManager.orElse(null);
         for (LoadStrategy s : loadStrategies) {
             strategies.put(s.name(), s);
         }
@@ -107,9 +111,8 @@ public class SessionCoordinator {
 
         PodInfo pod = chosen.get();
 
-        // Ingress creation is async — it involves a K8s API call (and potentially an
-        // admission webhook) that can take seconds. The assignment response is returned
-        // immediately; ingress creation completes in the background.
+        // Ingress and Kafka topic creation are async — both involve external calls that
+        // can take seconds. The assignment response is returned immediately.
         if (req.createIngress() && ingressManager != null) {
             final String sid = sessionId;
             final String sub = subdomain;
@@ -120,6 +123,17 @@ public class SessionCoordinator {
                     redis.opsForHash().put(RedisKeys.session(sid), RedisKeys.F_INGRESS_NAME, name);
                 } catch (RuntimeException e) {
                     log.warn("ingress creation failed for session {}: {}", Session.redact(sid), e.toString());
+                }
+            });
+        }
+
+        if (kafkaManager != null) {
+            final String sid = sessionId;
+            Thread.ofVirtual().name("kafka-topic-create-" + Session.redact(sessionId)).start(() -> {
+                try {
+                    kafkaManager.createTopic("notifications_" + sid);
+                } catch (RuntimeException e) {
+                    log.warn("kafka topic creation failed for session {}: {}", Session.redact(sid), e.toString());
                 }
             });
         }
@@ -148,6 +162,9 @@ public class SessionCoordinator {
         Object ingressNameObj = redis.opsForHash().get(key, RedisKeys.F_INGRESS_NAME);
         if (ingressNameObj != null && ingressManager != null) {
             ingressManager.deleteIngress(sessionId);
+        }
+        if (kafkaManager != null) {
+            kafkaManager.deleteTopic("notifications_" + sessionId);
         }
         redis.delete(key);
         log.info("session deleted: {}", Session.redact(sessionId));

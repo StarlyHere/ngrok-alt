@@ -1,0 +1,26 @@
+// kafka-producer-sim — POC stand-in for the Kafka Producer Interceptor.
+// Reads SESSION_ID from env and publishes to notifications_<sessionId> every 5s.
+
+plugins {
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+    id 'com.google.cloud.tools.jib'
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.kafka:spring-kafka'
+}
+
+jib {
+    from { image = 'eclipse-temurin:21-jre-jammy' }
+    to {
+        image = 'tunnel/kafka-producer-sim'
+        tags = ['latest']
+    }
+    container {
+        jvmFlags = ['-XX:MaxRAMPercentage=70.0', '-XX:+UseSerialGC']
+        creationTime = 'USE_CURRENT_TIMESTAMP'
+        environment = [SESSION_ID: '']
+    }
+}

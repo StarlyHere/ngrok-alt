@@ -9,11 +9,22 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: 6379
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka-bootstrap:9092}
+    consumer:
+      group-id: tunnel-router
+      auto-offset-reset: latest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      properties:
+        # Without this, new session topics take up to 5 min to appear after creation.
+        metadata.max.age.ms: 10000
 
 router:
   rate-limit-per-sec: ${RATE_LIMIT_PER_SEC:50}
   cookie-name: ${ROUTER_COOKIE_NAME:remoteDebugConf}
   webui-fallback-url: ${WEBUI_FALLBACK_URL:}
+  kafka-enabled: ${KAFKA_ENABLED:false}
 
 management:
   endpoints:
