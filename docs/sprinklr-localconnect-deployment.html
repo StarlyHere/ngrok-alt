@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sprinklr LocalConnect — QA6 Deployment Guide</title>
+  <style>
+    :root{--ink:#14213d;--muted:#5f6b85;--paper:#f5f7fb;--card:#fff;--line:#dce2ee;--blue:#1769e0;--green:#138a5b;--orange:#b85f10;--red:#ad3030;--shadow:0 14px 35px rgba(28,45,78,.08)}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:var(--ink);background:radial-gradient(circle at 10% -10%,#dceaff 0,transparent 30rem),var(--paper);font:15px/1.6 Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .shell{width:min(1080px,calc(100% - 40px));margin:auto}.hero{padding:72px 0 46px}.eyebrow{display:inline-block;padding:7px 12px;border:1px solid #cfe0f8;border-radius:99px;background:#e9f2ff;color:#154b98;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+    h1,h2,h3{line-height:1.15}h1{font-size:clamp(38px,6vw,64px);letter-spacing:-.045em;margin:18px 0}h2{font-size:30px;margin:0 0 18px}h3{margin:0 0 9px}.lead{max-width:780px;color:var(--muted);font-size:19px}
+    nav{position:sticky;top:0;z-index:5;border-block:1px solid var(--line);background:rgba(245,247,251,.92);backdrop-filter:blur(12px)}nav .shell{display:flex;gap:20px;overflow:auto;padding:12px 0}nav a{white-space:nowrap;color:var(--blue);font-size:13px;font-weight:750;text-decoration:none}
+    section{padding:48px 0}.grid{display:grid;gap:17px}.two{grid-template-columns:repeat(2,minmax(0,1fr))}.three{grid-template-columns:repeat(3,minmax(0,1fr))}.card{padding:22px;border:1px solid var(--line);border-radius:15px;background:var(--card);box-shadow:var(--shadow)}.card p,.card li{color:var(--muted)}
+    .step{display:grid;grid-template-columns:42px 1fr;gap:14px;margin:13px 0;padding:19px;border:1px solid var(--line);border-radius:14px;background:var(--card)}.number{display:grid;width:34px;height:34px;place-items:center;border-radius:50%;background:var(--blue);color:#fff;font-weight:800}
+    code{padding:1px 5px;border:1px solid #dbe6f5;border-radius:6px;background:#edf3fb;color:#174b91;font:13px/1.5 "SFMono-Regular",Consolas,monospace}pre{margin:12px 0 0;padding:17px;overflow:auto;border-radius:11px;background:#101a2d;color:#d9e6ff;font:13px/1.55 "SFMono-Regular",Consolas,monospace}
+    table{width:100%;border-collapse:collapse;border-radius:14px;overflow:hidden;background:#fff;box-shadow:var(--shadow)}th,td{padding:13px 15px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:#edf2f9;color:#3f4d69;font-size:12px;text-transform:uppercase}tr:last-child td{border-bottom:0}
+    .callout{margin-top:17px;padding:17px 19px;border-left:4px solid var(--orange);border-radius:9px;background:#fff1e5}.good{border-color:var(--green);background:#e8f8f1}.bad{border-color:var(--red);background:#fff0f0}.check{color:var(--green);font-weight:800}.muted{color:var(--muted)}.job-links{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}.job-links a{padding:9px 13px;border:1px solid #cfe0f8;border-radius:999px;background:#e9f2ff;color:#154b98;font-weight:750;text-decoration:none}footer{padding:40px 0 60px;color:var(--muted);text-align:center}
+    @media(max-width:760px){.two,.three{grid-template-columns:1fr}.step{grid-template-columns:1fr}.shell{width:min(100% - 26px,1080px)}}
+    @media print{nav{display:none}body{background:#fff}.hero{padding-top:25px}section{padding:24px 0}.card,table{box-shadow:none}}
+  </style>
+</head>
+<body>
+  <header class="hero shell">
+    <span class="eyebrow">Operator runbook</span>
+    <h1>Deploy LocalConnect to QA6</h1>
+    <p class="lead">Build three images, install one Helm release, deploy the QA6 WebUI canary Ingress, and verify the complete control and data planes.</p>
+  </header>
+
+  <nav><div class="shell">
+    <a href="sprinklr-localconnect-architecture.html">Architecture</a>
+    <a href="sprinklr-localconnect-local-webui.html">Local WebUI guide</a>
+    <a href="#order">Order</a><a href="#build">Build images</a><a href="#runtime">Deploy runtime</a><a href="#ingress">Deploy ingress</a><a href="#verify">Verify</a><a href="#troubleshooting">Troubleshoot</a>
+  </div></nav>
+
+  <main>
+    <section id="order"><div class="shell">
+      <h2>What gets deployed</h2>
+      <div class="grid three">
+        <article class="card"><h3>Coordinator</h3><p>Login, token issuance, session creation and relay assignment. Image: <code>spr-local-connect-coordinator</code>.</p></article>
+        <article class="card"><h3>Router</h3><p>Reads the developer session cookie, looks up Redis, and forwards selected HTTP requests. Image: <code>spr-local-connect-router</code>.</p></article>
+        <article class="card"><h3>Relay</h3><p>Owns the persistent SSH connection and carries requests to the laptop. Image: <code>spr-local-connect-relay</code>.</p></article>
+      </div>
+      <div class="callout good"><strong>One Helm release, three Deployments.</strong> Redis and Kafka already exist in QA6. The optional gateway prototype and laptop client are not deployed by this chart.</div>
+      <h3 style="margin-top:27px">Known QA6 reference runs</h3>
+      <p class="muted">These completed Jenkins runs are the concrete reference for the build-and-deploy sequence. Jenkins authentication is required to open their parameters and console output.</p>
+      <div class="job-links">
+        <a href="https://qa6-build.sprinklr.com/jenkins/job/build-deploy-jobs/job/ci-docker-image-builder/1594/">Image build #1594</a>
+        <a href="https://qa6-build.sprinklr.com/jenkins/job/build-deploy-jobs/job/ci-docker-image-builder/1595/">Image build #1595</a>
+        <a href="https://qa6-build.sprinklr.com/jenkins/job/build-deploy-jobs/job/ci-docker-image-builder/1596/">Image build #1596</a>
+        <a href="https://qa6-build.sprinklr.com/jenkins/job/itops-noc-jobs/job/custom-k8s-helm-deployment/757/">Helm deployment #757</a>
+      </div>
+      <div class="step"><div class="number">1</div><div><h3>Build all three images</h3><p class="muted">Run <code>ci-docker-image-builder</code> once per Dockerfile and retain each resulting timestamp tag.</p></div></div>
+      <div class="step"><div class="number">2</div><div><h3>Deploy the runtime chart</h3><p class="muted">Run <code>custom-k8s-helm-deployment</code> once with all three tags.</p></div></div>
+      <div class="step"><div class="number">3</div><div><h3>Deploy WebUI releases</h3><p class="muted">Upgrade the required QA6 WebUI releases so their cookie-selected canary Ingress points to the router.</p></div></div>
+      <div class="step"><div class="number">4</div><div><h3>Verify and start a fresh tunnel</h3><p class="muted">Old POC sessions use different names and Redis keys; they are not migrated.</p></div></div>
+    </div></section>
+
+    <section id="build"><div class="shell">
+      <h2>1. Build the three application images</h2>
+      <p class="lead">Open the QA6 Jenkins <code>ci-docker-image-builder</code> job. Use these common parameters for every run.</p>
+      <table><thead><tr><th>Parameter</th><th>Value</th></tr></thead><tbody>
+        <tr><td><code>GIT_REPO_URL</code></td><td><code>git@prod-gitlab.sprinklr.com:sprinklr/main/spr-local-connect.git</code></td></tr>
+        <tr><td><code>REPO_BRANCH</code></td><td><code>master</code></td></tr>
+        <tr><td><code>DOCKER_CONTEXT_PATH</code></td><td><code>.</code></td></tr>
+        <tr><td><code>ITOPS_REPO_BRANCH</code></td><td><code>master</code></td></tr>
+      </tbody></table>
+      <h3 style="margin-top:26px">Run-specific parameters</h3>
+      <table><thead><tr><th>Run</th><th>IMAGE_NAME</th><th>DOCKERFILE_PATH</th></tr></thead><tbody>
+        <tr><td>Coordinator</td><td><code>spr-local-connect-coordinator</code></td><td><code>Dockerfile.coordinator</code></td></tr>
+        <tr><td>Router</td><td><code>spr-local-connect-router</code></td><td><code>Dockerfile.router</code></td></tr>
+        <tr><td>Relay</td><td><code>spr-local-connect-relay</code></td><td><code>Dockerfile.relay</code></td></tr>
+      </tbody></table>
+      <div class="callout bad"><strong>Known Jenkins issue:</strong> Git 2.52 rejects the old Jenkins Git plugin's <code>git whatchanged</code> call. If checkout fails before the Docker stage, disable changelog generation on both explicit checkouts and use <code>skipDefaultCheckout(true)</code>, or upgrade the Jenkins Git plugins. This is not a Dockerfile failure.</div>
+      <pre>COORDINATOR_TAG=&lt;tag printed by coordinator build&gt;
+ROUTER_TAG=&lt;tag printed by router build&gt;
+RELAY_TAG=&lt;tag printed by relay build&gt;</pre>
+    </div></section>
+
+    <section id="runtime"><div class="shell">
+      <h2>2. Deploy the LocalConnect runtime</h2>
+      <p class="lead">Open <code>custom-k8s-helm-deployment</code> and supply the following values.</p>
+      <table><thead><tr><th>Parameter</th><th>Value</th></tr></thead><tbody>
+        <tr><td><code>GIT_REPO_URL</code></td><td><code>git@prod-gitlab.sprinklr.com:sprinklr-k8s/helm-internal-tools.git</code></td></tr>
+        <tr><td><code>KUBE_CLUSTER</code></td><td><code>apps-gke</code></td></tr>
+        <tr><td><code>CHART_NAME</code></td><td><code>spr-local-connect</code></td></tr>
+        <tr><td><code>CHART_RELEASE_NAME</code></td><td><code>qa6-tier1</code></td></tr>
+        <tr><td><code>CHART_NAMESPACE</code></td><td><code>spr-apps</code></td></tr>
+        <tr><td><code>CHART_REPO_BRANCH</code></td><td><code>origin/main</code></td></tr>
+        <tr><td><code>ITOPS_REPO_BRANCH</code></td><td><code>origin/custom-helm-deploy</code></td></tr>
+      </tbody></table>
+      <p style="margin-top:20px"><code>EXTRA_VALUES</code>:</p>
+      <pre>--set-string=image.coordinator.tag=&lt;COORDINATOR_TAG&gt;,image.router.tag=&lt;ROUTER_TAG&gt;,image.relay.tag=&lt;RELAY_TAG&gt;</pre>
+      <div class="callout"><strong>Keep <code>--set-string</code>.</strong> Timestamp-shaped image tags otherwise become integers and Helm can render invalid image names such as <code>%!s(int64=...)</code>. The QA6 release file already selects <code>asia-south1-docker.pkg.dev/gc-qa6/gc-qa6</code>.</div>
+    </div></section>
+
+    <section id="ingress"><div class="shell">
+      <h2>3. Deploy the WebUI canary Ingress</h2>
+      <p class="lead">The runtime alone cannot receive public WebUI traffic. The WebUI chart adds a static QA6 canary Ingress that selects <code>sprLocalConnect=always</code> and sends matching paths to <code>spr-local-connect-tier1-router:8080</code>.</p>
+      <p>Until WebUI MR !30202 merges, deploy from <code>origin/infra/master/spr-local-connect</code>. After it merges, use the normal WebUI chart branch.</p>
+      <div class="grid two">
+        <article class="card"><h3>qa6-app</h3><pre>GIT_REPO_URL=git@prod-gitlab.sprinklr.com:sprinklr-k8s/helm-charts.git
+KUBE_CLUSTER=apps-gke
+CHART_NAME=webui
+CHART_RELEASE_NAME=qa6-app
+CHART_NAMESPACE=spr-apps
+CHART_REPO_BRANCH=origin/infra/master/spr-local-connect
+ITOPS_REPO_BRANCH=origin/custom-helm-deploy</pre></article>
+        <article class="card"><h3>qa6-workflow</h3><pre>GIT_REPO_URL=git@prod-gitlab.sprinklr.com:sprinklr-k8s/helm-charts.git
+KUBE_CLUSTER=apps-gke
+CHART_NAME=webui
+CHART_RELEASE_NAME=qa6-workflow
+CHART_NAMESPACE=spr-apps
+CHART_REPO_BRANCH=origin/infra/master/spr-local-connect
+ITOPS_REPO_BRANCH=origin/custom-helm-deploy</pre></article>
+      </div>
+      <div class="callout"><strong>Release selection matters.</strong> Deploy each WebUI release whose host/path matrix you want to intercept. For <code>space-qa6-app-workflow.sprinklr.com</code>, the relevant release is <code>qa6-workflow</code>.</div>
+    </div></section>
+
+    <section id="verify"><div class="shell">
+      <h2>4. Verify the deployment</h2>
+      <pre>kubectl -n spr-apps get deploy,svc | grep spr-local-connect
+kubectl -n spr-apps get pods | grep spr-local-connect
+kubectl -n spr-apps get endpoints \
+  spr-local-connect-tier1-coordinator \
+  spr-local-connect-tier1-router \
+  spr-local-connect-tier1-relay
+
+kubectl -n spr-apps get ingress | grep spr-local-connect</pre>
+      <p>Expected Deployments and Services:</p>
+      <pre>spr-local-connect-tier1-coordinator
+spr-local-connect-tier1-router
+spr-local-connect-tier1-relay</pre>
+      <p>Confirm health from inside the cluster:</p>
+      <pre>kubectl -n spr-apps port-forward svc/spr-local-connect-tier1-coordinator 8090:8090
+curl http://127.0.0.1:8090/actuator/health</pre>
+      <p class="check">Expected: all three pods Ready, all three Services populated with endpoints, coordinator health UP, and WebUI canary Ingresses present.</p>
+    </div></section>
+
+    <section id="troubleshooting"><div class="shell">
+      <h2>Deployment troubleshooting</h2>
+      <table><thead><tr><th>Symptom</th><th>Cause and action</th></tr></thead><tbody>
+        <tr><td>Build skipped after checkout</td><td>Jenkins/Git <code>whatchanged</code> incompatibility. Fix changelog generation; changing Docker arguments will not help.</td></tr>
+        <tr><td><code>InvalidImageName</code> with <code>%!s(int64=...)</code></td><td>Tags were parsed as numbers. Redeploy using <code>--set-string</code>.</td></tr>
+        <tr><td>Service not found during tunnel startup</td><td>The chart is absent, wrong branch was used, or the expected release was not installed.</td></tr>
+        <tr><td>Service has no endpoints</td><td>Pods are not Ready. Inspect <code>kubectl describe pod</code> and component logs.</td></tr>
+        <tr><td>Request never reaches router</td><td>Canary Ingress is missing for that WebUI release/host/path, selector cookie is absent, or old stickiness is overriding selection.</td></tr>
+        <tr><td>Router reports no live relay</td><td>Session is old/expired or relay heartbeat is absent. Start a fresh tunnel and use its newly printed session cookie.</td></tr>
+      </tbody></table>
+    </div></section>
+  </main>
+  <footer class="shell">Sprinklr LocalConnect · QA6 deployment guide · <a href="sprinklr-localconnect-architecture.html">Architecture</a> · <a href="sprinklr-localconnect-local-webui.html">Local WebUI</a></footer>
+</body>
+</html>

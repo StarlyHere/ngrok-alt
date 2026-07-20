@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sprinklr LocalConnect — Local WebUI Guide</title>
+  <style>
+    :root{--ink:#14213d;--muted:#5f6b85;--paper:#f5f7fb;--card:#fff;--line:#dce2ee;--blue:#1769e0;--violet:#7047eb;--green:#138a5b;--orange:#b85f10;--red:#ad3030;--shadow:0 14px 35px rgba(28,45,78,.08)}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:var(--ink);background:radial-gradient(circle at 90% -10%,#eee7ff 0,transparent 30rem),var(--paper);font:15px/1.6 Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .shell{width:min(1080px,calc(100% - 40px));margin:auto}.hero{padding:72px 0 46px}.eyebrow{display:inline-block;padding:7px 12px;border:1px solid #dcd0ff;border-radius:99px;background:#f0ebff;color:#5530c5;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+    h1,h2,h3{line-height:1.15}h1{font-size:clamp(38px,6vw,64px);letter-spacing:-.045em;margin:18px 0}h2{font-size:30px;margin:0 0 18px}h3{margin:0 0 9px}.lead{max-width:800px;color:var(--muted);font-size:19px}
+    nav{position:sticky;top:0;z-index:5;border-block:1px solid var(--line);background:rgba(245,247,251,.92);backdrop-filter:blur(12px)}nav .shell{display:flex;gap:20px;overflow:auto;padding:12px 0}nav a{white-space:nowrap;color:var(--blue);font-size:13px;font-weight:750;text-decoration:none}
+    section{padding:47px 0}.grid{display:grid;gap:17px}.two{grid-template-columns:repeat(2,minmax(0,1fr))}.three{grid-template-columns:repeat(3,minmax(0,1fr))}.card{padding:22px;border:1px solid var(--line);border-radius:15px;background:var(--card);box-shadow:var(--shadow)}.card p,.card li{color:var(--muted)}
+    .timeline{counter-reset:step;display:grid;gap:13px}.step{position:relative;padding:18px 20px 18px 66px;border:1px solid var(--line);border-radius:14px;background:var(--card)}.step:before{counter-increment:step;content:counter(step);position:absolute;left:18px;top:16px;display:grid;width:32px;height:32px;place-items:center;border-radius:50%;background:var(--violet);color:#fff;font-weight:800}.step p{margin:4px 0 0;color:var(--muted)}
+    code{padding:1px 5px;border:1px solid #dbe6f5;border-radius:6px;background:#edf3fb;color:#174b91;font:13px/1.5 "SFMono-Regular",Consolas,monospace}pre{margin:12px 0 0;padding:17px;overflow:auto;border-radius:11px;background:#101a2d;color:#d9e6ff;font:13px/1.55 "SFMono-Regular",Consolas,monospace}
+    table{width:100%;border-collapse:collapse;border-radius:14px;overflow:hidden;background:#fff;box-shadow:var(--shadow)}th,td{padding:13px 15px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:#edf2f9;color:#3f4d69;font-size:12px;text-transform:uppercase}tr:last-child td{border-bottom:0}
+    .callout{margin-top:17px;padding:17px 19px;border-left:4px solid var(--orange);border-radius:9px;background:#fff1e5}.good{border-color:var(--green);background:#e8f8f1}.bad{border-color:var(--red);background:#fff0f0}.flow{display:flex;align-items:stretch;gap:7px;overflow:auto;padding:5px 2px 13px}.node{min-width:135px;padding:14px;border:1px solid #dcd0ff;border-radius:11px;background:#f0ebff;text-align:center;font-weight:750}.node small{display:block;color:var(--muted);font-weight:500}.arrow{display:grid;place-items:center;color:var(--violet);font-size:20px;font-weight:900}.muted{color:var(--muted)}footer{padding:40px 0 60px;color:var(--muted);text-align:center}
+    @media(max-width:760px){.two,.three{grid-template-columns:1fr}.shell{width:min(100% - 26px,1080px)}}
+    @media print{nav{display:none}body{background:#fff}.hero{padding-top:25px}section{padding:24px 0}.card,table{box-shadow:none}}
+  </style>
+</head>
+<body>
+  <header class="hero shell">
+    <span class="eyebrow">Developer runbook</span>
+    <h1>Run QA6 WebUI requests locally</h1>
+    <p class="lead">Bring up the WebUI on your laptop, establish the QA6 tunnel, opt only your browser into routing, and prove where every request is going.</p>
+  </header>
+
+  <nav><div class="shell">
+    <a href="sprinklr-localconnect-architecture.html">Architecture</a>
+    <a href="sprinklr-localconnect-deployment.html">Deployment guide</a>
+    <a href="#prerequisites">Prerequisites</a><a href="#webui">Start WebUI</a><a href="#tunnel">Start tunnel</a><a href="#cookies">Set cookies</a><a href="#test">Test</a><a href="#diagnose">Diagnose</a>
+  </div></nav>
+
+  <main>
+    <section id="prerequisites"><div class="shell">
+      <h2>Before you start</h2>
+      <div class="grid two">
+        <article class="card"><h3>QA6 must be ready</h3><ul><li>Coordinator, router and relay pods are Ready.</li><li>The three Services have endpoints.</li><li>The WebUI canary Ingress exists for the target hostname and path.</li><li>QA6 Redis is reachable by the pods.</li></ul></article>
+        <article class="card"><h3>Laptop must be ready</h3><ul><li>Java 21 or newer.</li><li><code>ssh</code>, <code>curl</code>, <code>nc</code> and <code>openssl</code>.</li><li>Access to the QA6 jump host and Kubernetes host.</li><li>A local WebUI listening on port <code>8080</code>.</li></ul></article>
+      </div>
+      <pre>kubectl -n spr-apps get pods,svc,endpoints | grep spr-local-connect
+kubectl -n spr-apps get ingress | grep spr-local-connect</pre>
+      <div class="callout"><strong>Fresh-clone note:</strong> the launcher invokes <code>./gradlew</code>. The wrapper JAR is intentionally ignored in this repository, so a fresh clone needs a working Gradle installation or an approved copy of <code>gradle-wrapper.jar</code>. Your existing checkout already contains it.</div>
+    </div></section>
+
+    <section id="webui"><div class="shell">
+      <h2>1. Start the local WebUI</h2>
+      <p class="lead">LocalConnect does not start WebUI. It forwards traffic only after your application is independently running and healthy.</p>
+      <div class="timeline">
+        <div class="step"><strong>Configure Java and Tomcat</strong><p>Use Java 21 and Tomcat 10.1.x. In IntelliJ, deploy the local exploded WebUI artifact with context path <code>/ui</code> and HTTP port <code>8080</code>.</p></div>
+        <div class="step"><strong>Load the normal local-development configuration</strong><p>Keep the WebUI's required local vault, Redis/cache, Spring placeholder and environment properties. LocalConnect does not replace application configuration.</p></div>
+        <div class="step"><strong>Wait for the WebUI context to finish</strong><p>Tomcat listening is insufficient if the <code>/ui</code> context failed to initialize. Confirm there is no context startup failure in the server log.</p></div>
+        <div class="step"><strong>Probe the application directly</strong><p>Verify the same path and port that the tunnel client will call.</p></div>
+      </div>
+      <pre>curl -I http://127.0.0.1:8080/ui/ping.html
+lsof -nP -iTCP:8080 -sTCP:LISTEN</pre>
+      <div class="callout good"><strong>Ready means both conditions hold:</strong> port 8080 is listening and the <code>/ui</code> application context answers. A Tomcat process with a failed WebUI deployment is not ready.</div>
+      <h3 style="margin-top:25px">Local application errors are separate from tunnel errors</h3>
+      <table><thead><tr><th>Local log</th><th>Meaning</th></tr></thead><tbody>
+        <tr><td><code>cacheManager ... 'beanName' must not be empty</code></td><td>A required Spring placeholder/property is missing; fix the local WebUI configuration before tunnelling.</td></tr>
+        <tr><td><code>GraphQLSchemaGenerator ... dynamic proxy</code></td><td>The request reached local Tomcat, but local GraphQL schema initialization failed. This proves routing can work; fix the local application.</td></tr>
+        <tr><td><code>/proc/1/fd/1 ... No such file</code></td><td>A container-oriented Logback appender is being used on macOS. Override local logging so diagnostics remain visible.</td></tr>
+      </tbody></table>
+    </div></section>
+
+    <section id="tunnel"><div class="shell">
+      <h2>2. Start the LocalConnect tunnel</h2>
+      <pre>cd /Users/lakshay.jindal/Desktop/sprinklr_repos/spr-local-connect
+scripts/qa6-local-connect.sh 8080</pre>
+      <p>The script will prompt for the QA6 Kubernetes host password and then sudo. Keep this terminal open.</p>
+      <div class="timeline">
+        <div class="step"><strong>Validate and build the client</strong><p>The script checks port <code>8080</code>, builds <code>client-0.1.0-SNAPSHOT.jar</code>, and generates a random session ID.</p></div>
+        <div class="step"><strong>Open the outer SSH path</strong><p>Laptop → <code>access.qa6.spr-ops.com</code> → <code>10.56.32.106</code>, then <code>sudo su - sprapps</code>.</p></div>
+        <div class="step"><strong>Expose QA6 services</strong><p>Remote <code>kubectl port-forward</code> processes expose the coordinator and relay, while SSH maps them back to laptop ports <code>8090</code> and <code>2222</code>.</p></div>
+        <div class="step"><strong>Login and assign a relay</strong><p>The client validates or refreshes its token, asks the coordinator for a relay, and creates a session record in Redis.</p></div>
+        <div class="step"><strong>Open the inner SSH tunnel</strong><p>The client connects to the assigned relay through <code>localhost:2222</code> and registers the session.</p></div>
+        <div class="step"><strong>Start the inspector</strong><p>Only after the client starts, it listens on <code>localhost:4040</code> and forwards tunnel traffic to <code>127.0.0.1:8080</code>.</p></div>
+      </div>
+      <h3 style="margin-top:25px">Required success messages</h3>
+      <pre>Ready: QA6 coordinator on localhost:8090
+Ready: QA6 relay SSH on localhost:2222
+tunnel established
+forwarding to 127.0.0.1:8080
+inspect requests at http://localhost:4040</pre>
+      <div class="callout bad"><strong>If the script stops before these messages, port 4040 will be down.</strong> The inspector is part of the Java client; it is not served by Tomcat.</div>
+    </div></section>
+
+    <section id="cookies"><div class="shell">
+      <h2>3. Opt your browser into local routing</h2>
+      <p class="lead">The script prints a unique session ID but does not modify your browser. Set both cookies manually on the exact QA6 hostname you are using.</p>
+      <div class="grid two">
+        <article class="card"><h3>Ingress selector</h3><pre>Name:  sprLocalConnect
+Value: always
+Path:  /ui</pre><p>This makes the NGINX canary Ingress select the shared LocalConnect router for matching <code>/ui</code> requests.</p></article>
+        <article class="card"><h3>Developer session</h3><pre>Name:  remoteDebugConf
+Value: &lt;session ID printed by script&gt;
+Path:  /ui</pre><p>This tells the router which developer session and relay connection to use.</p></article>
+      </div>
+      <p style="margin-top:20px">In Edge or Chrome: open DevTools → Application → Storage → Cookies → select the exact hostname, create/update both rows, then reload.</p>
+      <div class="callout"><strong>Delete <code>SPR_STICKINESS</code> for this hostname before testing.</strong> Existing WebUI affinity can otherwise keep the request on the normal backend. Also remove duplicate or obsolete <code>remoteDebugConf</code>, <code>ngrokAlt</code>, and old session cookies.</div>
+      <table style="margin-top:20px"><thead><tr><th>Cookie Path</th><th>Effect</th></tr></thead><tbody>
+        <tr><td><code>/ui</code> (recommended)</td><td>The browser sends the LocalConnect cookies only for paths beginning with <code>/ui</code>. Frontend pages such as <code>/care/...</code> remain on normal QA6.</td></tr>
+        <tr><td><code>/</code></td><td>The browser sends the cookies for every path on the hostname. Use only when intentionally routing the complete host.</td></tr>
+      </tbody></table>
+      <div class="callout good"><strong>Other users are unaffected.</strong> Their browsers lack <code>sprLocalConnect=always</code>, so they continue to the normal QA6 WebUI Service.</div>
+    </div></section>
+
+    <section id="test"><div class="shell">
+      <h2>4. Test the complete request path</h2>
+      <div class="flow">
+        <div class="node">Browser<small>two cookies</small></div><div class="arrow">→</div>
+        <div class="node">Canary Ingress</div><div class="arrow">→</div>
+        <div class="node">Router<small>Redis lookup</small></div><div class="arrow">→</div>
+        <div class="node">Relay</div><div class="arrow">→</div>
+        <div class="node">SSH tunnel</div><div class="arrow">→</div>
+        <div class="node">Inspector</div><div class="arrow">→</div>
+        <div class="node">Local WebUI</div>
+      </div>
+      <p>Open the inspector first:</p>
+      <pre>open http://127.0.0.1:4040/
+# or
+curl http://127.0.0.1:4040/api/requests</pre>
+      <p>Then trigger a browser request under <code>/ui</code>, for example a GraphQL call. Watch three places:</p>
+      <div class="grid three">
+        <article class="card"><h3>Router log</h3><p>Should show session → relay → relay HTTP address.</p></article>
+        <article class="card"><h3>Inspector :4040</h3><p>Should record the request method, URL, status, duration and byte counts.</p></article>
+        <article class="card"><h3>Local Tomcat</h3><p>Should log or hit your breakpoint for the same <code>/ui/...</code> request.</p></article>
+      </div>
+      <pre>kubectl -n spr-apps logs -f deploy/spr-local-connect-tier1-router
+kubectl -n spr-apps logs -f deploy/spr-local-connect-tier1-relay</pre>
+      <div class="callout"><strong>A local 401 or 500 still proves tunnelling.</strong> If the request appears in port 4040 and local Tomcat, routing succeeded; authentication or application startup is then the separate problem.</div>
+    </div></section>
+
+    <section id="diagnose"><div class="shell">
+      <h2>Diagnosis by symptom</h2>
+      <table><thead><tr><th>Symptom</th><th>Check</th><th>Likely resolution</th></tr></thead><tbody>
+        <tr><td><code>localhost:4040</code> refused</td><td>Are <code>8090</code> and <code>2222</code> listening? Did “tunnel established” appear?</td><td>Restart the launcher and keep its terminal open. Fix coordinator/relay port-forward failure first.</td></tr>
+        <tr><td>“Kubernetes port-forward stopped unexpectedly”</td><td>Read the two exact <code>/tmp/spr-local-connect-...log</code> paths printed by the script.</td><td>Deploy missing Services, correct the namespace/name, or restore pod readiness.</td></tr>
+        <tr><td>Router has no log for the request</td><td>Check host/path in canary Ingress, cookie domain/path/value, and <code>SPR_STICKINESS</code>.</td><td>Deploy the correct WebUI release and clean up browser cookies.</td></tr>
+        <tr><td>Router says “no session”</td><td>Compare <code>remoteDebugConf</code> byte-for-byte with the current script output.</td><td>Replace the browser cookie with the current session ID.</td></tr>
+        <tr><td>Router says “no live relay”</td><td>Inspect the Redis session and relay heartbeat keys.</td><td>Restart the tunnel to create a fresh assignment; verify relay connectivity and TTL refresh.</td></tr>
+        <tr><td>Inspector sees request but breakpoint does not hit</td><td>Confirm the client target port and local context/path.</td><td>Run the intended artifact on port 8080 and verify the requested endpoint exists locally.</td></tr>
+        <tr><td>Local response is 401</td><td>Routing already succeeded; inspect local WebUI authentication/session handling.</td><td>Supply compatible QA6 auth cookies/config or debug the local auth filter.</td></tr>
+      </tbody></table>
+      <h3 style="margin-top:28px">Redis checks</h3>
+      <pre>HGETALL spr-local-connect:qa6-tier1:session:&lt;session-id&gt;
+SCAN 0 MATCH spr-local-connect:qa6-tier1:pod:*</pre>
+      <p class="muted"><code>SCAN</code> is cursor-based. Continue using the returned cursor until it returns <code>0</code>; an empty page with a nonzero cursor does not mean no keys exist.</p>
+      <h3 style="margin-top:28px">Local port checks</h3>
+      <pre>lsof -nP -iTCP:8080 -sTCP:LISTEN
+lsof -nP -iTCP:8090 -sTCP:LISTEN
+lsof -nP -iTCP:2222 -sTCP:LISTEN
+lsof -nP -iTCP:4040 -sTCP:LISTEN</pre>
+    </div></section>
+
+    <section><div class="shell">
+      <h2>Stopping safely</h2>
+      <p>Press <code>Ctrl+C</code> in the launcher terminal. The script stops the Java client, closes the outer SSH connection, and terminates the remote Kubernetes port-forwards. Ports <code>4040</code>, <code>8090</code>, and <code>2222</code> then close. Redis session and heartbeat records expire through TTL.</p>
+      <p>Remove the two browser cookies when you want all traffic to return to normal QA6:</p>
+      <pre>sprLocalConnect
+remoteDebugConf</pre>
+    </div></section>
+  </main>
+  <footer class="shell">Sprinklr LocalConnect · local WebUI runbook · <a href="sprinklr-localconnect-architecture.html">Architecture</a> · <a href="sprinklr-localconnect-deployment.html">Deployment</a></footer>
+</body>
+</html>
