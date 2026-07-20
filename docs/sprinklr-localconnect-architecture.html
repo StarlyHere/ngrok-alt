@@ -91,6 +91,7 @@
     nav .shell { display: flex; gap: 22px; overflow-x: auto; padding-block: 12px; }
     nav a { flex: none; color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 700; }
     nav a:hover { color: var(--blue); }
+    nav .doc-link { color: var(--blue); }
 
     section { padding: 58px 0; }
     .section-lead { max-width: 780px; color: var(--muted); font-size: 17px; margin-bottom: 28px; }
@@ -242,6 +243,8 @@
 
   <nav>
     <div class="shell">
+      <a class="doc-link" href="sprinklr-localconnect-deployment.html">Deployment guide</a>
+      <a class="doc-link" href="sprinklr-localconnect-local-webui.html">Local WebUI guide</a>
       <a href="#overview">Overview</a>
       <a href="#components">Components</a>
       <a href="#ports">Ports</a>
@@ -266,7 +269,7 @@
               <div class="node">Local WebUI <small>127.0.0.1:8080</small></div>
               <div class="arrow">↑</div>
               <div class="node">LocalConnect client <small>Inspector :4040</small></div>
-              <div class="arrow">↑ control :8090 &nbsp; · &nbsp; tunnel :2222</div>
+              <div class="arrow">↑ coordinator :8090 &nbsp; · &nbsp; tunnel :2222</div>
               <div class="node">Local forwarded ports <small>Stable laptop endpoints</small></div>
             </div>
 
@@ -285,9 +288,9 @@
               <div class="arrow">↓</div>
               <div class="node">Router <small>HTTP :8080</small></div>
               <div class="arrow">↓ Redis lookup</div>
-              <div class="node">Tunnel pod / relay <small>HTTP :8080 · SSH :2222</small></div>
+              <div class="node">Relay <small>HTTP :8080 · SSH :2222</small></div>
               <div class="arrow">↔</div>
-              <div class="node">Control + Redis <small>Assignment and temporary state</small></div>
+              <div class="node">Coordinator + Redis <small>Assignment and temporary state</small></div>
             </div>
           </div>
           <div class="architecture-note">Browser → canary ingress → router → relay → existing SSH tunnel → local client → local WebUI</div>
@@ -300,7 +303,7 @@
         <h2>Core components</h2>
         <div class="grid three">
           <article class="card control">
-            <h3>Control</h3>
+            <h3>Coordinator</h3>
             <p>The control plane on port <code>8090</code>.</p>
             <ul>
               <li>Authenticates developers</li>
@@ -321,7 +324,7 @@
             </ul>
           </article>
           <article class="card data">
-            <h3>Tunnel pod / relay</h3>
+            <h3>Relay</h3>
             <p>Bridges cluster HTTP traffic into the persistent SSH tunnel.</p>
             <ul>
               <li>Accepts router traffic on <code>8080</code></li>
@@ -369,11 +372,11 @@
         <table>
           <thead><tr><th>Port</th><th>Location</th><th>Purpose</th></tr></thead>
           <tbody>
-            <tr><td><code>8090</code></td><td>Developer laptop</td><td>Stable local endpoint forwarded to QA6 control.</td></tr>
+            <tr><td><code>8090</code></td><td>Developer laptop</td><td>Stable local endpoint forwarded to the QA6 coordinator.</td></tr>
             <tr><td><code>2222</code></td><td>Developer laptop</td><td>Stable local endpoint forwarded to the relay's SSH server.</td></tr>
             <tr><td><code>4040</code></td><td>Developer laptop</td><td>Local request inspector UI and API.</td></tr>
             <tr><td><code>8080</code></td><td>Developer laptop</td><td>The local WebUI or microservice receiving tunneled requests.</td></tr>
-            <tr><td><code>8090</code></td><td>QA6 control</td><td>Authentication, session creation and reassignment.</td></tr>
+            <tr><td><code>8090</code></td><td>QA6 coordinator</td><td>Authentication, session creation and reassignment.</td></tr>
             <tr><td><code>8080</code></td><td>QA6 router</td><td>Receives selected WebUI requests from ingress.</td></tr>
             <tr><td><code>8080</code></td><td>QA6 relay</td><td>Receives router requests before placing them on the tunnel.</td></tr>
             <tr><td><code>2222</code></td><td>QA6 relay</td><td>Persistent application-level SSH tunnel server.</td></tr>
@@ -392,11 +395,11 @@ scripts/qa6-local-connect.sh 8080</pre>
         <div class="timeline" style="margin-top:22px">
           <div class="timeline-item"><strong>Validate and build</strong><p>Verify <code>localhost:8080</code>, build the client JAR and generate a unique session ID.</p></div>
           <div class="timeline-item"><strong>Open outer infrastructure SSH</strong><p>Connect from the laptop through the QA6 access host to <code>10.56.32.106</code>.</p></div>
-          <div class="timeline-item"><strong>Start Kubernetes port-forwards</strong><p>Under the <code>sprapps</code> user, map random remote ports to control <code>8090</code> and relay SSH <code>2222</code>.</p></div>
+          <div class="timeline-item"><strong>Start Kubernetes port-forwards</strong><p>Under the <code>sprapps</code> user, map random remote ports to coordinator <code>8090</code> and relay SSH <code>2222</code>.</p></div>
           <div class="timeline-item"><strong>Create stable laptop endpoints</strong><p>SSH <code>-L</code> forwarding exposes the random remote ports as laptop ports <code>8090</code> and <code>2222</code>.</p></div>
-          <div class="timeline-item"><strong>Authenticate and request assignment</strong><p>The client calls control on <code>localhost:8090</code>. Control chooses a live relay and writes the session to Redis.</p></div>
+          <div class="timeline-item"><strong>Authenticate and request assignment</strong><p>The client calls the coordinator on <code>localhost:8090</code>. The coordinator chooses a live relay and writes the session to Redis.</p></div>
           <div class="timeline-item"><strong>Start inspector and inner SSH tunnel</strong><p>The client serves the inspector on <code>4040</code>, connects to <code>localhost:2222</code>, authenticates and registers the session.</p></div>
-          <div class="timeline-item"><strong>Keep the session alive</strong><p>Client and relay heartbeats refresh Redis TTLs. Control remains reachable for automatic reassignment after an interruption.</p></div>
+          <div class="timeline-item"><strong>Keep the session alive</strong><p>Client and relay heartbeats refresh Redis TTLs. The coordinator remains reachable for automatic reassignment after an interruption.</p></div>
         </div>
       </div>
     </section>
@@ -404,13 +407,13 @@ scripts/qa6-local-connect.sh 8080</pre>
     <section id="control">
       <div class="shell">
         <h2>Control plane</h2>
-        <p class="section-lead">Control is used during login, initial assignment and reconnection. Normal WebUI traffic does not pass through control.</p>
+        <p class="section-lead">The coordinator is used during login, initial assignment and reconnection. Normal WebUI traffic does not pass through it.</p>
         <div class="flow control-flow">
           <div class="flow-step">Local client<small>Requests session</small></div><div class="flow-arrow">→</div>
           <div class="flow-step">localhost:8090<small>Stable local port</small></div><div class="flow-arrow">→</div>
           <div class="flow-step">Outer SSH<small>Via access host</small></div><div class="flow-arrow">→</div>
           <div class="flow-step">kubectl forward<small>Remote random port</small></div><div class="flow-arrow">→</div>
-          <div class="flow-step">Control<small>Auth + assignment</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">Coordinator<small>Auth + assignment</small></div><div class="flow-arrow">→</div>
           <div class="flow-step">Redis<small>Session → pod</small></div>
         </div>
 
@@ -436,7 +439,7 @@ lastSeen = &lt;timestamp&gt;</pre>
           </div>
         </div>
 
-        <div class="callout good" style="margin-top:20px"><strong>Why keep port 8090 open?</strong> The active request path does not use it, but the client needs control to reassign the existing session after a relay restart, pod rollout or tunnel interruption.</div>
+        <div class="callout good" style="margin-top:20px"><strong>Why keep port 8090 open?</strong> The active request path does not use it, but the client needs the coordinator to reassign the existing session after a relay restart, pod rollout or tunnel interruption.</div>
       </div>
     </section>
 
@@ -507,7 +510,7 @@ POST http://127.0.0.1:8080/ui/graphql/searchStandardEntities</pre>
           <div class="status-row"><b>Valid tunnel cookies</b><span>Ingress selects the router; Redis resolves the session; the request reaches the developer laptop.</span></div>
           <div class="status-row"><b>Old <code>SPR_STICKINESS</code></b><span>The request may remain pinned to normal QA6. Delete the cookie before enabling local routing.</span></div>
           <div class="status-row"><b>Expired session</b><span>The router cannot resolve a live relay and reports a missing tunnel/fallback outcome.</span></div>
-          <div class="status-row"><b>Relay restart</b><span>The client uses control on <code>8090</code> to request reassignment and reconnect.</span></div>
+          <div class="status-row"><b>Relay restart</b><span>The client uses the coordinator on <code>8090</code> to request reassignment and reconnect.</span></div>
           <div class="status-row"><b>Local WebUI stopped</b><span>The request reaches the laptop but local forwarding returns an error.</span></div>
           <div class="status-row"><b>Tunnel script stopped</b><span>Ports <code>4040</code>, <code>8090</code> and <code>2222</code> close; Redis session state expires by TTL.</span></div>
         </div>
@@ -520,7 +523,7 @@ POST http://127.0.0.1:8080/ui/graphql/searchStandardEntities</pre>
   → localhost:8090
   → outer SSH
   → kubectl forward
-  → control
+  → coordinator
   → Redis assignment</pre>
           </div>
           <div class="card data">
@@ -549,6 +552,6 @@ POST http://127.0.0.1:8080/ui/graphql/searchStandardEntities</pre>
     </section>
   </main>
 
-  <footer class="shell">Sprinklr LocalConnect · QA-to-local development architecture</footer>
+  <footer class="shell">Sprinklr LocalConnect · QA-to-local development architecture · <a href="sprinklr-localconnect-deployment.html">Deploy</a> · <a href="sprinklr-localconnect-local-webui.html">Run local WebUI</a></footer>
 </body>
 </html>
