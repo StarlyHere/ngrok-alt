@@ -17,6 +17,16 @@ browser → QA6 canary Ingress → router → relay ──SSH──▶ your lapt
 5. Router reads `remoteDebugConf=<sessionId>`, resolves the owning relay in Redis, and forwards the request into the tunnel
 6. Responses travel back the same way
 
+If the selected session is absent or has no live relay, the router replays the
+request through its original QA ingress hostname after removing only the
+`sprLocalConnect`, `remoteDebugConf`, and tunnel-routing header. The replay is
+therefore handled by the normal WebUI backend without looping through the
+LocalConnect canary. An explicit `WEBUI_FALLBACK_URL` can override this dynamic
+target. The QA6 Helm release allows only hostnames containing `qa6` as an exact
+hyphen/dot-delimited environment token and ending in `.sprinklr.com`; dynamic
+replay always uses HTTPS. If the host is not allowed or replay fails, the router
+returns `502 {"error":"tunnel-not-found"}`.
+
 ---
 
 ## Modules
@@ -76,8 +86,17 @@ to the router, so the optional gateway image is not deployed. The laptop CLI
 remains local. Redis and Kafka are shared QA6 services; the Helm release does
 not install either one.
 
-Build each image with the QA6 Jenkins `ci-docker-image-builder` job using the
-same source branch and these Dockerfiles:
+Merging an MR into the default branch automatically starts a GitLab push
+pipeline. It invokes the QA6 Jenkins `ci-docker-image-builder` job for all three
+images in parallel, collects their generated tags, and then invokes
+`custom-k8s-helm-deployment` for the `qa6-tier1` release. Deployment does not
+start unless all three image builds succeed. QA6 deployments are serialized,
+and a newer default-branch pipeline cancels older builds that have not reached
+deployment.
+
+The protected, masked GitLab variables `QA6_JENKINS_USER` and
+`QA6_JENKINS_TOKEN` must exist and be available to the protected default
+branch. The automated builds use these Dockerfiles:
 
 | Image | Dockerfile |
 |---|---|
@@ -98,10 +117,10 @@ Then run `custom-k8s-helm-deployment` with:
 | `ITOPS_REPO_BRANCH` | `origin/custom-helm-deploy` |
 | `EXTRA_VALUES` | `--set-string=image.coordinator.tag=<coordinator-tag>,image.router.tag=<router-tag>,image.relay.tag=<relay-tag>` |
 
-Alternatively, set `DEPLOY_SPR_LOCAL_CONNECT=true` when manually starting the GitLab
-pipeline. It builds all three images in parallel and invokes the same Helm job.
-The protected GitLab variables `QA6_JENKINS_USER` and `QA6_JENKINS_TOKEN` must
-exist.
+For an explicit redeployment, start a GitLab pipeline manually with
+`DEPLOY_SPR_LOCAL_CONNECT=true`. Set `BUILD_SPR_LOCAL_CONNECT=true` instead to
+build and publish all three images without deploying them. The Jenkins
+parameters above remain useful for recovery and debugging.
 
 The shared `webui` Helm chart creates QA6-only NGINX canary Ingresses pointing
 to the router. Each developer sets two cookies on the QA6 hostname:

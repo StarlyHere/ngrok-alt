@@ -23,7 +23,7 @@
   <header class="hero shell">
     <span class="eyebrow">Operator runbook</span>
     <h1>Deploy LocalConnect to QA6</h1>
-    <p class="lead">Build three images, install one Helm release, deploy the QA6 WebUI canary Ingress, and verify the complete control and data planes.</p>
+    <p class="lead">Merge to the default branch to build three images and upgrade the QA6 runtime automatically, then verify the WebUI canary Ingress and the complete control and data planes.</p>
   </header>
 
   <nav><div class="shell">
@@ -41,6 +41,7 @@
         <article class="card"><h3>Relay</h3><p>Owns the persistent SSH connection and carries requests to the laptop. Image: <code>spr-local-connect-relay</code>.</p></article>
       </div>
       <div class="callout good"><strong>One Helm release, three Deployments.</strong> Redis and Kafka already exist in QA6. The optional gateway prototype and laptop client are not deployed by this chart.</div>
+      <div class="callout good"><strong>Default path: merge the MR.</strong> A push pipeline on the protected default branch builds coordinator, router and relay through Jenkins, exports their image tags, and deploys <code>qa6-tier1</code> only after every build succeeds. The GitLab project needs protected, masked <code>QA6_JENKINS_USER</code> and <code>QA6_JENKINS_TOKEN</code> variables. The manual steps below are the recovery and troubleshooting path.</div>
       <h3 style="margin-top:27px">Known QA6 reference runs</h3>
       <p class="muted">These completed Jenkins runs are the concrete reference for the build-and-deploy sequence. Jenkins authentication is required to open their parameters and console output.</p>
       <div class="job-links">
@@ -49,15 +50,15 @@
         <a href="https://qa6-build.sprinklr.com/jenkins/job/build-deploy-jobs/job/ci-docker-image-builder/1596/">Image build #1596</a>
         <a href="https://qa6-build.sprinklr.com/jenkins/job/itops-noc-jobs/job/custom-k8s-helm-deployment/757/">Helm deployment #757</a>
       </div>
-      <div class="step"><div class="number">1</div><div><h3>Build all three images</h3><p class="muted">Run <code>ci-docker-image-builder</code> once per Dockerfile and retain each resulting timestamp tag.</p></div></div>
-      <div class="step"><div class="number">2</div><div><h3>Deploy the runtime chart</h3><p class="muted">Run <code>custom-k8s-helm-deployment</code> once with all three tags.</p></div></div>
+      <div class="step"><div class="number">1</div><div><h3>Merge to the default branch</h3><p class="muted">GitLab automatically starts three Jenkins image builds in parallel and retains each resulting timestamp tag as a pipeline artifact.</p></div></div>
+      <div class="step"><div class="number">2</div><div><h3>Automatic runtime deployment</h3><p class="muted">After all builds pass, GitLab invokes <code>custom-k8s-helm-deployment</code> once with all three tags. Concurrent QA6 deployments are serialized.</p></div></div>
       <div class="step"><div class="number">3</div><div><h3>Deploy WebUI releases</h3><p class="muted">Upgrade the required QA6 WebUI releases so their cookie-selected canary Ingress points to the router.</p></div></div>
       <div class="step"><div class="number">4</div><div><h3>Verify and start a fresh tunnel</h3><p class="muted">Old POC sessions use different names and Redis keys; they are not migrated.</p></div></div>
     </div></section>
 
     <section id="build"><div class="shell">
-      <h2>1. Build the three application images</h2>
-      <p class="lead">Open the QA6 Jenkins <code>ci-docker-image-builder</code> job. Use these common parameters for every run.</p>
+      <h2>1. Manual image-build fallback</h2>
+      <p class="lead">Normally GitLab performs these builds after a merge. For recovery or investigation, open the QA6 Jenkins <code>ci-docker-image-builder</code> job and use these common parameters for every run.</p>
       <table><thead><tr><th>Parameter</th><th>Value</th></tr></thead><tbody>
         <tr><td><code>GIT_REPO_URL</code></td><td><code>git@prod-gitlab.sprinklr.com:sprinklr/main/spr-local-connect.git</code></td></tr>
         <tr><td><code>REPO_BRANCH</code></td><td><code>master</code></td></tr>
@@ -77,8 +78,8 @@ RELAY_TAG=&lt;tag printed by relay build&gt;</pre>
     </div></section>
 
     <section id="runtime"><div class="shell">
-      <h2>2. Deploy the LocalConnect runtime</h2>
-      <p class="lead">Open <code>custom-k8s-helm-deployment</code> and supply the following values.</p>
+      <h2>2. Manual runtime-deployment fallback</h2>
+      <p class="lead">Normally this runs automatically after all three image builds succeed. For recovery or an explicit rollback, open <code>custom-k8s-helm-deployment</code> and supply the following values.</p>
       <table><thead><tr><th>Parameter</th><th>Value</th></tr></thead><tbody>
         <tr><td><code>GIT_REPO_URL</code></td><td><code>git@prod-gitlab.sprinklr.com:sprinklr-k8s/helm-internal-tools.git</code></td></tr>
         <tr><td><code>KUBE_CLUSTER</code></td><td><code>apps-gke</code></td></tr>
@@ -91,6 +92,7 @@ RELAY_TAG=&lt;tag printed by relay build&gt;</pre>
       <p style="margin-top:20px"><code>EXTRA_VALUES</code>:</p>
       <pre>--set-string=image.coordinator.tag=&lt;COORDINATOR_TAG&gt;,image.router.tag=&lt;ROUTER_TAG&gt;,image.relay.tag=&lt;RELAY_TAG&gt;</pre>
       <div class="callout"><strong>Keep <code>--set-string</code>.</strong> Timestamp-shaped image tags otherwise become integers and Helm can render invalid image names such as <code>%!s(int64=...)</code>. The QA6 release file already selects <code>asia-south1-docker.pkg.dev/gc-qa6/gc-qa6</code>.</div>
+      <div class="callout good"><strong>Fallback safety is configured by the QA6 release.</strong> It sets <code>FALLBACK_ENVIRONMENT=qa6</code> and <code>FALLBACK_DOMAIN_SUFFIX=.sprinklr.com</code>. Dynamic replay accepts only matching QA6 hostnames and always uses HTTPS.</div>
     </div></section>
 
     <section id="ingress"><div class="shell">
@@ -144,7 +146,7 @@ curl http://127.0.0.1:8090/actuator/health</pre>
         <tr><td>Service not found during tunnel startup</td><td>The chart is absent, wrong branch was used, or the expected release was not installed.</td></tr>
         <tr><td>Service has no endpoints</td><td>Pods are not Ready. Inspect <code>kubectl describe pod</code> and component logs.</td></tr>
         <tr><td>Request never reaches router</td><td>Canary Ingress is missing for that WebUI release/host/path, selector cookie is absent, or old stickiness is overriding selection.</td></tr>
-        <tr><td>Router reports no live relay</td><td>Session is old/expired or relay heartbeat is absent. Start a fresh tunnel and use its newly printed session cookie.</td></tr>
+        <tr><td>Router reports no live relay</td><td>Session is old/expired or relay heartbeat is absent. The router strips the LocalConnect routing cookies and replays the request through its original QA ingress so normal WebUI handles it. Start a fresh tunnel and use its newly printed session cookie to restore local routing.</td></tr>
       </tbody></table>
     </div></section>
   </main>

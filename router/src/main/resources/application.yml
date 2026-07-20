@@ -23,7 +23,10 @@ spring:
 router:
   rate-limit-per-sec: ${RATE_LIMIT_PER_SEC:50}
   cookie-name: ${ROUTER_COOKIE_NAME:remoteDebugConf}
+  selector-cookie-name: ${ROUTER_SELECTOR_COOKIE_NAME:sprLocalConnect}
   webui-fallback-url: ${WEBUI_FALLBACK_URL:}
+  fallback-environment: ${FALLBACK_ENVIRONMENT:}
+  fallback-domain-suffix: ${FALLBACK_DOMAIN_SUFFIX:}
   kafka-enabled: ${KAFKA_ENABLED:false}
   kafka-topic-prefix: ${KAFKA_TOPIC_PREFIX:notifications_}
   kafka-topic-pattern: ${KAFKA_TOPIC_PATTERN:notifications_.*}

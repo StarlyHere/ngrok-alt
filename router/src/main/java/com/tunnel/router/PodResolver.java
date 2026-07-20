@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
  * The sticky lookup (PRD-v2.md §10, path B): resolve a session to the exact pod
  * that holds its socket. Stateless and O(1) — the Router stays horizontally
  * scalable. A miss (expired/unknown session, or a pod whose liveness key lapsed)
- * yields empty, which the filter turns into {@code tunnel-not-found}.
+ * yields empty, which the filter replays through the original QA ingress.
  */
 @Component
 public class PodResolver {

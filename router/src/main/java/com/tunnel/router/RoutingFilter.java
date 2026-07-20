@@ -31,8 +31,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /**
  * The Router's data path (BUILD-CHECKLIST.md Part 3): resolve the session →
  * owning pod via Redis, then forward the request to that pod's data plane,
- * propagating a correlation/trace id. A miss returns a clean
- * {@code tunnel-not-found} (no hang) — the visible result of TTL expiry.
+ * propagating a correlation/trace id. A miss is replayed through the original
+ * QA ingress without the LocalConnect selector/session cookies, so it reaches
+ * the normal WebUI backend instead of selecting this canary again.
  */
 @Component
 public class RoutingFilter extends OncePerRequestFilter {
@@ -58,8 +59,17 @@ public class RoutingFilter extends OncePerRequestFilter {
     @Value("${router.cookie-name:remoteDebugConf}")
     private String cookieName;
 
+    @Value("${router.selector-cookie-name:sprLocalConnect}")
+    private String selectorCookieName;
+
     @Value("${router.webui-fallback-url:}")
     private String webuiFallbackUrl;
+
+    @Value("${router.fallback-environment:}")
+    private String fallbackEnvironment;
+
+    @Value("${router.fallback-domain-suffix:}")
+    private String fallbackDomainSuffix;
 
     public RoutingFilter(PodResolver resolver, RateLimiter rateLimiter,
                          io.micrometer.core.instrument.MeterRegistry meters) {
@@ -189,47 +199,194 @@ public class RoutingFilter extends OncePerRequestFilter {
         return resolver.sessionForSubdomain(subdomain).orElse(null);
     }
 
-    /** Forward to webui-placeholder when no tunnel session is found. Falls back to 502 if not configured. */
+    /**
+     * Replay a tunnel miss through the original ingress URL. Removing the two
+     * LocalConnect cookies is essential: retaining the selector would send the
+     * replay back to this canary and create a loop. WEBUI_FALLBACK_URL remains
+     * an optional explicit override for environments that have a fixed normal
+     * WebUI upstream.
+     */
     private void forwardToWebUi(HttpServletRequest request, HttpServletResponse response,
                                 String traceId, String reason) throws IOException {
-        if (webuiFallbackUrl == null || webuiFallbackUrl.isBlank()) {
+        String fallbackBaseUrl = fallbackBaseUrl(
+                request, webuiFallbackUrl, fallbackEnvironment, fallbackDomainSuffix);
+        if (fallbackBaseUrl == null) {
             count("not-found");
             writeError(response, ErrorCodes.TUNNEL_NOT_FOUND);
             return;
         }
-        String url = webuiFallbackUrl + request.getRequestURI()
+        String url = fallbackBaseUrl + request.getRequestURI()
                 + (request.getQueryString() == null ? "" : "?" + request.getQueryString());
-        log.info("trace {} → {} → webui-placeholder {}", traceId, reason, url);
+        log.info("trace {} → {} → original webui ingress {}", traceId, reason, url);
         count("webui-fallback");
 
-        byte[] body = request.getInputStream().readAllBytes();
-        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofSeconds(30))
-                .method(request.getMethod(), body.length == 0
-                        ? HttpRequest.BodyPublishers.noBody()
-                        : HttpRequest.BodyPublishers.ofByteArray(body));
-
-        Enumeration<String> names = request.getHeaderNames();
-        while (names.hasMoreElements()) {
-            String name = names.nextElement();
-            if (RESTRICTED.contains(name.toLowerCase(Locale.ROOT))) {
-                continue;
-            }
-            for (String v : Collections.list(request.getHeaders(name))) {
-                b.header(name, v);
-            }
-        }
-        b.header(TunnelConstants.HEADER_TRACE, traceId);
-
         try {
+            byte[] body = request.getInputStream().readAllBytes();
+            HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(Duration.ofSeconds(30))
+                    .method(request.getMethod(), body.length == 0
+                            ? HttpRequest.BodyPublishers.noBody()
+                            : HttpRequest.BodyPublishers.ofByteArray(body));
+
+            Enumeration<String> names = request.getHeaderNames();
+            while (names.hasMoreElements()) {
+                String name = names.nextElement();
+                String lowerName = name.toLowerCase(Locale.ROOT);
+                if (RESTRICTED.contains(lowerName)
+                        || TunnelConstants.HEADER_SESSION.equalsIgnoreCase(name)) {
+                    continue;
+                }
+                for (String v : Collections.list(request.getHeaders(name))) {
+                    if ("cookie".equals(lowerName)) {
+                        String cookies = withoutRoutingCookies(v, selectorCookieName, cookieName);
+                        if (!cookies.isBlank()) {
+                            b.header(name, cookies);
+                        }
+                    } else {
+                        b.header(name, v);
+                    }
+                }
+            }
+            b.header(TunnelConstants.HEADER_TRACE, traceId);
+
             relay(response, httpClient.send(b.build(), HttpResponse.BodyHandlers.ofByteArray()));
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException | InterruptedException | IllegalArgumentException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
-            log.warn("trace {} → webui-placeholder forward failed: {}", traceId, e.toString());
+            log.warn("trace {} → original ingress fallback failed", traceId, e);
             writeError(response, ErrorCodes.TUNNEL_NOT_FOUND);
         }
+    }
+
+    /** Resolve an explicit override or reconstruct the original public ingress base URL. */
+    static String fallbackBaseUrl(HttpServletRequest request, String configuredUrl,
+                                  String environment, String domainSuffix) {
+        if (configuredUrl != null && !configuredUrl.isBlank()) {
+            return stripTrailingSlashes(configuredUrl);
+        }
+
+        String host = firstForwardedValue(request.getHeader("X-Forwarded-Host"));
+        if (!isAllowedIngressHost(host, environment, domainSuffix)) {
+            host = firstForwardedValue(request.getHeader("Host"));
+        }
+        if (!isAllowedIngressHost(host, environment, domainSuffix)) {
+            return null;
+        }
+
+        // QA ingress URLs are HTTPS. Trusting X-Forwarded-Proto=http here can
+        // relay a redirect to the browser, which would resend the selector
+        // cookie and enter the LocalConnect canary again.
+        return "https://" + host;
+    }
+
+    private static String firstForwardedValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        int comma = value.indexOf(',');
+        return (comma < 0 ? value : value.substring(0, comma)).trim();
+    }
+
+    /** Only QA ingress hosts are valid dynamic fallback targets; do not become an open proxy. */
+    private static boolean isAllowedIngressHost(String host, String environment, String domainSuffix) {
+        if (host == null || host.isBlank()
+                || environment == null || environment.isBlank()
+                || domainSuffix == null || domainSuffix.isBlank()
+                || host.indexOf('/') >= 0 || host.indexOf('\\') >= 0 || host.indexOf('@') >= 0) {
+            return false;
+        }
+        String hostname = host;
+        int colon = hostname.lastIndexOf(':');
+        if (colon > 0 && hostname.indexOf(':') == colon) {
+            String port = hostname.substring(colon + 1);
+            if (port.isEmpty() || !port.chars().allMatch(Character::isDigit)) {
+                return false;
+            }
+            int portNumber;
+            try {
+                portNumber = Integer.parseInt(port);
+            } catch (NumberFormatException e) {
+                return false;
+            }
+            if (portNumber < 1 || portNumber > 65_535) {
+                return false;
+            }
+            hostname = hostname.substring(0, colon);
+        }
+        hostname = hostname.toLowerCase(Locale.ROOT);
+        if (!isValidHostname(hostname)) {
+            return false;
+        }
+        String suffix = domainSuffix.toLowerCase(Locale.ROOT);
+        if (!suffix.startsWith(".")) {
+            suffix = "." + suffix;
+        }
+        if (!hostname.endsWith(suffix) || hostname.length() == suffix.length()) {
+            return false;
+        }
+        String ingressName = hostname.substring(0, hostname.length() - suffix.length());
+        return containsEnvironmentToken(ingressName, environment.toLowerCase(Locale.ROOT));
+    }
+
+    private static boolean containsEnvironmentToken(String ingressName, String environment) {
+        int from = 0;
+        while (from <= ingressName.length() - environment.length()) {
+            int index = ingressName.indexOf(environment, from);
+            if (index < 0) {
+                return false;
+            }
+            int end = index + environment.length();
+            boolean startsAtBoundary = index == 0 || isHostTokenSeparator(ingressName.charAt(index - 1));
+            boolean endsAtBoundary = end == ingressName.length()
+                    || isHostTokenSeparator(ingressName.charAt(end));
+            if (startsAtBoundary && endsAtBoundary) {
+                return true;
+            }
+            from = index + 1;
+        }
+        return false;
+    }
+
+    private static boolean isHostTokenSeparator(char value) {
+        return value == '-' || value == '.';
+    }
+
+    private static boolean isValidHostname(String hostname) {
+        if (!Character.isLetterOrDigit(hostname.charAt(0))
+                || !Character.isLetterOrDigit(hostname.charAt(hostname.length() - 1))) {
+            return false;
+        }
+        for (int index = 1; index < hostname.length() - 1; index++) {
+            char value = hostname.charAt(index);
+            if (!Character.isLetterOrDigit(value) && value != '-' && value != '.') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String stripTrailingSlashes(String value) {
+        int end = value.length();
+        while (end > 0 && value.charAt(end - 1) == '/') {
+            end--;
+        }
+        return value.substring(0, end);
+    }
+
+    static String withoutRoutingCookies(String cookieHeader, String selectorName, String sessionName) {
+        if (cookieHeader == null || cookieHeader.isBlank()) {
+            return "";
+        }
+        return java.util.Arrays.stream(cookieHeader.split(";"))
+                .map(String::trim)
+                .filter(cookie -> {
+                    int equals = cookie.indexOf('=');
+                    String name = equals < 0 ? cookie : cookie.substring(0, equals).trim();
+                    return !name.equals(selectorName) && !name.equals(sessionName);
+                })
+                .filter(cookie -> !cookie.isBlank())
+                .collect(java.util.stream.Collectors.joining("; "));
     }
 
     private static String subdomainOf(String host) {

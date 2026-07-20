@@ -1,5 +1,10 @@
+# Merge requests validate the repository. A merge creates a push pipeline on the
+# default branch, which builds all runtime images and deploys them to QA6.
 workflow:
+  auto_cancel:
+    on_new_commit: interruptible
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: $CI_PIPELINE_SOURCE == "web"
     - if: $CI_PIPELINE_SOURCE == "api"
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -15,7 +20,7 @@ variables:
     value: "false"
     options: ["false", "true"]
     description: "Build all images and deploy the qa6-tier1 Helm release"
-  JENKINS_URL: "https://qa6-build-int.sprinklr.com/jenkins"
+  JENKINS_URL: "http://qa6-build.sprinklr.com/jenkins"
   JENKINS_BUILD_JOB: "job/build-deploy-jobs/job/ci-docker-image-builder"
   JENKINS_DEPLOY_JOB: "job/itops-noc-jobs/job/custom-k8s-helm-deployment"
   GIT_REPO_URL: "git@prod-gitlab.sprinklr.com:sprinklr/main/spr-local-connect.git"
@@ -30,6 +35,7 @@ variables:
 validate:
   stage: validate
   image: asia-south1-docker.pkg.dev/gc-qa6/gc-qa6/curl:latest
+  interruptible: true
   script:
     - test -f Dockerfile.coordinator
     - test -f Dockerfile.router
@@ -37,13 +43,19 @@ validate:
     - test -f .gitlab-ci.yml
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
 
 .build-image:
   stage: build
   image: asia-south1-docker.pkg.dev/gc-qa6/gc-qa6/curl:latest
+  interruptible: true
   script:
     - |
       set -euo pipefail
+      if [ -z "${QA6_JENKINS_USER:-}" ] || [ -z "${QA6_JENKINS_TOKEN:-}" ]; then
+        echo "ERROR: protected QA6_JENKINS_USER and QA6_JENKINS_TOKEN variables are required"
+        exit 1
+      fi
       RESPONSE=$(curl -X POST "$JENKINS_URL/$JENKINS_BUILD_JOB/buildWithParameters" \
         --user "$QA6_JENKINS_USER:$QA6_JENKINS_TOKEN" \
         --data-urlencode "GIT_REPO_URL=$GIT_REPO_URL" \
@@ -67,8 +79,6 @@ validate:
         BUILD_URL=$(echo "$QUEUE_JSON" | grep -o '"executable":{[^}]*}' | grep -o '"url":"[^"]*"' | sed 's/"url":"//;s/"//' || true)
       done
       test -n "$BUILD_URL"
-      BUILD_URL=$(echo "$BUILD_URL" | sed 's|https://qa6-build.sprinklr.com|https://qa6-build-int.sprinklr.com|')
-
       BUILDING=true
       ELAPSED=0
       while [ "$BUILDING" = true ] && [ "$ELAPSED" -lt "$MAX_WAIT_SECONDS" ]; do
@@ -91,6 +101,7 @@ validate:
     reports:
       dotenv: build.env
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: $BUILD_SPR_LOCAL_CONNECT == "true"
     - if: $DEPLOY_SPR_LOCAL_CONNECT == "true"
 
@@ -118,6 +129,9 @@ build-relay:
 deploy-qa6:
   stage: deploy
   image: asia-south1-docker.pkg.dev/gc-qa6/gc-qa6/curl:latest
+  resource_group: spr-local-connect-qa6-tier1
+  environment:
+    name: qa6
   needs:
     - job: build-coordinator
       artifacts: true
@@ -128,6 +142,10 @@ deploy-qa6:
   script:
     - |
       set -euo pipefail
+      if [ -z "${QA6_JENKINS_USER:-}" ] || [ -z "${QA6_JENKINS_TOKEN:-}" ]; then
+        echo "ERROR: protected QA6_JENKINS_USER and QA6_JENKINS_TOKEN variables are required"
+        exit 1
+      fi
       EXTRA_VALUES="--set-string=image.repository=${DOCKER_REPO},image.coordinator.tag=${COORDINATOR_IMAGE_TAG},image.router.tag=${ROUTER_IMAGE_TAG},image.relay.tag=${RELAY_IMAGE_TAG}"
       RESPONSE=$(curl -X POST "$JENKINS_URL/$JENKINS_DEPLOY_JOB/buildWithParameters" \
         --user "$QA6_JENKINS_USER:$QA6_JENKINS_TOKEN" \
@@ -154,8 +172,6 @@ deploy-qa6:
         BUILD_URL=$(echo "$QUEUE_JSON" | grep -o '"executable":{[^}]*}' | grep -o '"url":"[^"]*"' | sed 's/"url":"//;s/"//' || true)
       done
       test -n "$BUILD_URL"
-      BUILD_URL=$(echo "$BUILD_URL" | sed 's|https://qa6-build.sprinklr.com|https://qa6-build-int.sprinklr.com|')
-
       BUILDING=true
       ELAPSED=0
       while [ "$BUILDING" = true ] && [ "$ELAPSED" -lt "$MAX_WAIT_SECONDS" ]; do
@@ -171,4 +187,5 @@ deploy-qa6:
       fi
       echo "Deployed Sprinklr LocalConnect qa6-tier1: coordinator=${COORDINATOR_IMAGE_TAG}, router=${ROUTER_IMAGE_TAG}, relay=${RELAY_IMAGE_TAG}"
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: $DEPLOY_SPR_LOCAL_CONNECT == "true"
