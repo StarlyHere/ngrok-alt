@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sprinklr LocalConnect — Architecture</title>
+  <style>
+    :root {
+      --ink: #14213d;
+      --muted: #5f6b85;
+      --paper: #f5f7fb;
+      --card: #ffffff;
+      --line: #dce2ee;
+      --blue: #1769e0;
+      --blue-soft: #e9f2ff;
+      --violet: #7047eb;
+      --violet-soft: #f0ebff;
+      --green: #138a5b;
+      --green-soft: #e8f8f1;
+      --orange: #c76513;
+      --orange-soft: #fff1e5;
+      --red: #b33434;
+      --shadow: 0 16px 40px rgba(28, 45, 78, .09);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% -10%, #dceaff 0, transparent 30rem),
+        radial-gradient(circle at 90% 0%, #eee7ff 0, transparent 28rem),
+        var(--paper);
+      font: 15px/1.6 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    a { color: var(--blue); }
+    h1, h2, h3 { margin-top: 0; line-height: 1.15; }
+    h1 { font-size: clamp(38px, 6vw, 70px); letter-spacing: -.045em; margin-bottom: 18px; }
+    h2 { font-size: clamp(26px, 3vw, 38px); letter-spacing: -.025em; margin-bottom: 20px; }
+    h3 { font-size: 18px; margin-bottom: 10px; }
+    p { margin: 0 0 14px; }
+    code {
+      color: #174b91;
+      background: #edf3fb;
+      border: 1px solid #dbe6f5;
+      border-radius: 6px;
+      padding: 1px 5px;
+      font: 13px/1.5 "SFMono-Regular", Consolas, monospace;
+    }
+    pre {
+      margin: 14px 0 0;
+      padding: 18px;
+      overflow: auto;
+      color: #d9e6ff;
+      background: #101a2d;
+      border-radius: 12px;
+      font: 13px/1.55 "SFMono-Regular", Consolas, monospace;
+    }
+
+    .shell { width: min(1180px, calc(100% - 40px)); margin: auto; }
+    .hero { padding: 82px 0 56px; }
+    .eyebrow {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 22px;
+      padding: 7px 12px;
+      color: #154b98;
+      background: rgba(233, 242, 255, .88);
+      border: 1px solid #cfe0f8;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .hero p { max-width: 760px; color: var(--muted); font-size: 20px; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+    .pill { padding: 8px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 4px 14px rgba(28,45,78,.05); }
+
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-block: 1px solid rgba(220, 226, 238, .9);
+      background: rgba(245, 247, 251, .9);
+      backdrop-filter: blur(14px);
+    }
+    nav .shell { display: flex; gap: 22px; overflow-x: auto; padding-block: 12px; }
+    nav a { flex: none; color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 700; }
+    nav a:hover { color: var(--blue); }
+
+    section { padding: 58px 0; }
+    .section-lead { max-width: 780px; color: var(--muted); font-size: 17px; margin-bottom: 28px; }
+    .grid { display: grid; gap: 18px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card {
+      padding: 24px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+    }
+    .card p, .card li { color: var(--muted); }
+    .card ul { margin: 10px 0 0; padding-left: 20px; }
+    .card.control { border-top: 4px solid var(--blue); }
+    .card.data { border-top: 4px solid var(--violet); }
+    .card.local { border-top: 4px solid var(--green); }
+
+    .architecture {
+      padding: 28px;
+      background: #111b30;
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      color: white;
+    }
+    .zone-grid { display: grid; grid-template-columns: 1.05fr .8fr 1.35fr; gap: 16px; align-items: stretch; }
+    .zone {
+      padding: 18px;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 15px;
+      background: rgba(255,255,255,.055);
+    }
+    .zone-title { margin-bottom: 16px; color: #9dbbff; font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    .node {
+      padding: 12px 14px;
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 10px;
+      background: rgba(255,255,255,.09);
+      text-align: center;
+      font-weight: 700;
+    }
+    .node small { display: block; margin-top: 2px; color: #b9c7e5; font-weight: 500; }
+    .arrow { padding: 6px; text-align: center; color: #8eb4ff; font-weight: 900; }
+    .architecture-note { margin-top: 18px; color: #bac8e4; text-align: center; }
+
+    .flow {
+      display: flex;
+      align-items: stretch;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 4px 2px 14px;
+    }
+    .flow-step {
+      display: grid;
+      min-width: 145px;
+      place-items: center;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--card);
+      text-align: center;
+      font-weight: 750;
+      box-shadow: 0 8px 20px rgba(28,45,78,.05);
+    }
+    .flow-step small { display: block; margin-top: 4px; color: var(--muted); font-weight: 500; }
+    .flow-arrow { display: grid; place-items: center; color: var(--blue); font-size: 22px; font-weight: 900; }
+    .flow.control-flow .flow-step { background: var(--blue-soft); border-color: #cfe0fb; }
+    .flow.data-flow .flow-step { background: var(--violet-soft); border-color: #dcd0ff; }
+    .flow.response-flow .flow-step { background: var(--green-soft); border-color: #cbeade; }
+
+    .timeline { counter-reset: step; display: grid; gap: 14px; }
+    .timeline-item {
+      position: relative;
+      padding: 18px 20px 18px 66px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+    }
+    .timeline-item::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: 18px;
+      top: 16px;
+      display: grid;
+      width: 32px;
+      height: 32px;
+      place-items: center;
+      color: white;
+      background: var(--blue);
+      border-radius: 50%;
+      font-weight: 800;
+    }
+    .timeline-item p { color: var(--muted); margin: 4px 0 0; }
+
+    table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
+    th, td { padding: 14px 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: #3f4d69; background: #edf2f9; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+
+    .cookie { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: center; }
+    .cookie-box { padding: 22px; border-radius: 14px; text-align: center; }
+    .cookie-box.blue { background: var(--blue-soft); border: 1px solid #cfe0fb; }
+    .cookie-box.violet { background: var(--violet-soft); border: 1px solid #dcd0ff; }
+    .cookie .plus { font-size: 28px; font-weight: 900; color: var(--muted); }
+
+    .callout { padding: 18px 20px; border-left: 4px solid var(--orange); border-radius: 10px; background: var(--orange-soft); }
+    .callout strong { color: #8b3d00; }
+    .good { border-left-color: var(--green); background: var(--green-soft); }
+    .good strong { color: #086642; }
+
+    .status-list { display: grid; gap: 10px; }
+    .status-row { display: grid; grid-template-columns: minmax(180px, .8fr) 1.5fr; gap: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+    .status-row b { color: var(--ink); }
+    .status-row span { color: var(--muted); }
+
+    footer { padding: 42px 0 60px; color: var(--muted); text-align: center; }
+
+    @media (max-width: 850px) {
+      .grid.two, .grid.three, .zone-grid { grid-template-columns: 1fr; }
+      .cookie { grid-template-columns: 1fr; }
+      .cookie .plus { text-align: center; }
+      .status-row { grid-template-columns: 1fr; gap: 3px; }
+    }
+
+    @media print {
+      body { background: white; font-size: 12px; }
+      nav { display: none; }
+      .hero { padding-top: 30px; }
+      section { padding: 26px 0; break-inside: avoid; }
+      .card, table, .architecture { box-shadow: none; }
+      .shell { width: 94%; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero shell">
+    <div class="eyebrow">Architecture overview</div>
+    <h1>Sprinklr LocalConnect</h1>
+    <p>Securely route selected QA6 WebUI backend requests through a shared, session-aware reverse tunnel to a developer's local application.</p>
+    <div class="hero-meta">
+      <span class="pill">Shared QA6 infrastructure</span>
+      <span class="pill">Per-developer sessions</span>
+      <span class="pill">Persistent SSH transport</span>
+      <span class="pill">No direct inbound laptop access</span>
+    </div>
+  </header>
+
+  <nav>
+    <div class="shell">
+      <a href="#overview">Overview</a>
+      <a href="#components">Components</a>
+      <a href="#ports">Ports</a>
+      <a href="#startup">Startup</a>
+      <a href="#control">Control plane</a>
+      <a href="#data">Data plane</a>
+      <a href="#multi-user">Multi-user</a>
+      <a href="#operations">Operations</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="overview">
+      <div class="shell">
+        <h2>High-level architecture</h2>
+        <p class="section-lead">The browser never connects directly to the laptop. The laptop creates an outbound SSH tunnel, and QA6 reuses that connection to deliver selected HTTP requests.</p>
+
+        <div class="architecture">
+          <div class="zone-grid">
+            <div class="zone">
+              <div class="zone-title">Developer laptop</div>
+              <div class="node">Local WebUI <small>127.0.0.1:8080</small></div>
+              <div class="arrow">↑</div>
+              <div class="node">LocalConnect client <small>Inspector :4040</small></div>
+              <div class="arrow">↑ control :8090 &nbsp; · &nbsp; tunnel :2222</div>
+              <div class="node">Local forwarded ports <small>Stable laptop endpoints</small></div>
+            </div>
+
+            <div class="zone">
+              <div class="zone-title">QA6 access path</div>
+              <div class="node">Access host</div>
+              <div class="arrow">↓ outer SSH</div>
+              <div class="node">10.56.32.106</div>
+              <div class="arrow">↓</div>
+              <div class="node">kubectl port-forwards <small>Random remote ports</small></div>
+            </div>
+
+            <div class="zone">
+              <div class="zone-title">QA6 Kubernetes</div>
+              <div class="node">WebUI canary ingress <small>Cookie-based opt-in</small></div>
+              <div class="arrow">↓</div>
+              <div class="node">Router <small>HTTP :8080</small></div>
+              <div class="arrow">↓ Redis lookup</div>
+              <div class="node">Tunnel pod / relay <small>HTTP :8080 · SSH :2222</small></div>
+              <div class="arrow">↔</div>
+              <div class="node">Control + Redis <small>Assignment and temporary state</small></div>
+            </div>
+          </div>
+          <div class="architecture-note">Browser → canary ingress → router → relay → existing SSH tunnel → local client → local WebUI</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="components">
+      <div class="shell">
+        <h2>Core components</h2>
+        <div class="grid three">
+          <article class="card control">
+            <h3>Control</h3>
+            <p>The control plane on port <code>8090</code>.</p>
+            <ul>
+              <li>Authenticates developers</li>
+              <li>Issues and validates tokens</li>
+              <li>Discovers live relay pods</li>
+              <li>Creates and reassigns sessions</li>
+              <li>Writes assignment state to Redis</li>
+            </ul>
+          </article>
+          <article class="card data">
+            <h3>Router</h3>
+            <p>The session-aware HTTP router on port <code>8080</code>.</p>
+            <ul>
+              <li>Reads <code>remoteDebugConf</code></li>
+              <li>Resolves session and pod in Redis</li>
+              <li>Adds tunnel session and trace headers</li>
+              <li>Forwards the complete HTTP request</li>
+            </ul>
+          </article>
+          <article class="card data">
+            <h3>Tunnel pod / relay</h3>
+            <p>Bridges cluster HTTP traffic into the persistent SSH tunnel.</p>
+            <ul>
+              <li>Accepts router traffic on <code>8080</code></li>
+              <li>Accepts client SSH on <code>2222</code></li>
+              <li>Maps sessions to live connections</li>
+              <li>Multiplexes concurrent requests</li>
+            </ul>
+          </article>
+          <article class="card control">
+            <h3>Redis</h3>
+            <p>Stores short-lived coordination state.</p>
+            <ul>
+              <li>Session → assigned pod</li>
+              <li>Pod → host and port</li>
+              <li>Authentication token → owner</li>
+              <li>Session and pod heartbeat TTLs</li>
+            </ul>
+          </article>
+          <article class="card local">
+            <h3>Local client</h3>
+            <p>The developer-side process that owns the reverse tunnel.</p>
+            <ul>
+              <li>Requests an assignment</li>
+              <li>Maintains the SSH connection</li>
+              <li>Forwards to <code>localhost:8080</code></li>
+              <li>Reconnects after interruptions</li>
+            </ul>
+          </article>
+          <article class="card local">
+            <h3>Request inspector</h3>
+            <p>A lightweight Java HTTP server on <code>4040</code>, not Tomcat.</p>
+            <ul>
+              <li>Shows requests received by the laptop</li>
+              <li>Records status, duration and byte counts</li>
+              <li>Exposes <code>/api/requests</code></li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="ports">
+      <div class="shell">
+        <h2>Port architecture</h2>
+        <table>
+          <thead><tr><th>Port</th><th>Location</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>8090</code></td><td>Developer laptop</td><td>Stable local endpoint forwarded to QA6 control.</td></tr>
+            <tr><td><code>2222</code></td><td>Developer laptop</td><td>Stable local endpoint forwarded to the relay's SSH server.</td></tr>
+            <tr><td><code>4040</code></td><td>Developer laptop</td><td>Local request inspector UI and API.</td></tr>
+            <tr><td><code>8080</code></td><td>Developer laptop</td><td>The local WebUI or microservice receiving tunneled requests.</td></tr>
+            <tr><td><code>8090</code></td><td>QA6 control</td><td>Authentication, session creation and reassignment.</td></tr>
+            <tr><td><code>8080</code></td><td>QA6 router</td><td>Receives selected WebUI requests from ingress.</td></tr>
+            <tr><td><code>8080</code></td><td>QA6 relay</td><td>Receives router requests before placing them on the tunnel.</td></tr>
+            <tr><td><code>2222</code></td><td>QA6 relay</td><td>Persistent application-level SSH tunnel server.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="startup">
+      <div class="shell">
+        <h2>Tunnel startup</h2>
+        <p class="section-lead">The developer starts a local application and then launches one script. The script creates both the infrastructure access path and the application tunnel.</p>
+        <pre>cd /Users/lakshay.jindal/Desktop/sprinklr_repos/spr-local-connect
+scripts/qa6-local-connect.sh 8080</pre>
+
+        <div class="timeline" style="margin-top:22px">
+          <div class="timeline-item"><strong>Validate and build</strong><p>Verify <code>localhost:8080</code>, build the client JAR and generate a unique session ID.</p></div>
+          <div class="timeline-item"><strong>Open outer infrastructure SSH</strong><p>Connect from the laptop through the QA6 access host to <code>10.56.32.106</code>.</p></div>
+          <div class="timeline-item"><strong>Start Kubernetes port-forwards</strong><p>Under the <code>sprapps</code> user, map random remote ports to control <code>8090</code> and relay SSH <code>2222</code>.</p></div>
+          <div class="timeline-item"><strong>Create stable laptop endpoints</strong><p>SSH <code>-L</code> forwarding exposes the random remote ports as laptop ports <code>8090</code> and <code>2222</code>.</p></div>
+          <div class="timeline-item"><strong>Authenticate and request assignment</strong><p>The client calls control on <code>localhost:8090</code>. Control chooses a live relay and writes the session to Redis.</p></div>
+          <div class="timeline-item"><strong>Start inspector and inner SSH tunnel</strong><p>The client serves the inspector on <code>4040</code>, connects to <code>localhost:2222</code>, authenticates and registers the session.</p></div>
+          <div class="timeline-item"><strong>Keep the session alive</strong><p>Client and relay heartbeats refresh Redis TTLs. Control remains reachable for automatic reassignment after an interruption.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="control">
+      <div class="shell">
+        <h2>Control plane</h2>
+        <p class="section-lead">Control is used during login, initial assignment and reconnection. Normal WebUI traffic does not pass through control.</p>
+        <div class="flow control-flow">
+          <div class="flow-step">Local client<small>Requests session</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">localhost:8090<small>Stable local port</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">Outer SSH<small>Via access host</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">kubectl forward<small>Remote random port</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">Control<small>Auth + assignment</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">Redis<small>Session → pod</small></div>
+        </div>
+
+        <div class="grid two" style="margin-top:22px">
+          <div class="card">
+            <h3>Session record</h3>
+            <pre>spr-local-connect:qa6-tier1:session:&lt;session-id&gt;
+
+ownerId   = lakshayjindal
+podId     = spr-local-connect-tier1-relay-...
+status    = ACTIVE
+subdomain = bright-wolf-81</pre>
+          </div>
+          <div class="card">
+            <h3>Pod record</h3>
+            <pre>spr-local-connect:qa6-tier1:pod:&lt;pod-id&gt;
+
+host     = 10.51.2.26
+port     = 8080
+secure   = false
+conns    = 1
+lastSeen = &lt;timestamp&gt;</pre>
+          </div>
+        </div>
+
+        <div class="callout good" style="margin-top:20px"><strong>Why keep port 8090 open?</strong> The active request path does not use it, but the client needs control to reassign the existing session after a relay restart, pod rollout or tunnel interruption.</div>
+      </div>
+    </section>
+
+    <section id="data">
+      <div class="shell">
+        <h2>Request and response flow</h2>
+        <p class="section-lead">Two cookies perform two independent routing decisions: ingress selects the shared router, then the router selects the developer session.</p>
+
+        <div class="cookie">
+          <div class="cookie-box blue"><strong><code>sprLocalConnect=always</code></strong><br>Ingress selects the canary router</div>
+          <div class="plus">+</div>
+          <div class="cookie-box violet"><strong><code>remoteDebugConf=&lt;session-id&gt;</code></strong><br>Router selects the developer tunnel</div>
+        </div>
+
+        <h3 style="margin-top:34px">Data plane</h3>
+        <div class="flow data-flow">
+          <div class="flow-step">QA6 browser<small>Selected /ui request</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">Canary ingress<small>sprLocalConnect=always</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">Router<small>Reads session cookie</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">Redis<small>Session + pod lookup</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">Relay HTTP :8080<small>X-Tunnel-Session</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">SSH tunnel :2222<small>Multiplexed stream</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">Local client<small>Inspect + forward</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">Local WebUI :8080</div>
+        </div>
+
+        <h3 style="margin-top:24px">Response plane</h3>
+        <div class="flow response-flow">
+          <div class="flow-step">Local WebUI :8080</div><div class="flow-arrow">→</div>
+          <div class="flow-step">Local client</div><div class="flow-arrow">→</div>
+          <div class="flow-step">SSH tunnel</div><div class="flow-arrow">→</div>
+          <div class="flow-step">Relay</div><div class="flow-arrow">→</div>
+          <div class="flow-step">Router</div><div class="flow-arrow">→</div>
+          <div class="flow-step">Ingress</div><div class="flow-arrow">→</div>
+          <div class="flow-step">QA6 browser</div>
+        </div>
+
+        <div class="card" style="margin-top:22px">
+          <h3>What is preserved?</h3>
+          <p>The client forwards the original HTTP method, path, query string, headers, cookies and body to the local service. The status, response headers and body return through the same tunnel.</p>
+          <pre>POST https://space-qa6-app-workflow.sprinklr.com/ui/graphql/searchStandardEntities
+                                  ↓
+POST http://127.0.0.1:8080/ui/graphql/searchStandardEntities</pre>
+        </div>
+
+        <div class="callout" style="margin-top:20px"><strong>Current QA6 note:</strong> remove the existing <code>SPR_STICKINESS</code> cookie when enabling the tunnel. The deployed ingress controller may otherwise keep the browser pinned to the normal WebUI backend.</div>
+      </div>
+    </section>
+
+    <section id="multi-user">
+      <div class="shell">
+        <h2>Multi-user model</h2>
+        <p class="section-lead">The infrastructure is shared, while Redis session IDs isolate developer traffic.</p>
+        <div class="grid three">
+          <div class="card"><h3>Lakshay</h3><p><code>remoteDebugConf=c38110...</code></p><p>Routes to Lakshay's registered client connection and laptop.</p></div>
+          <div class="card"><h3>Developer B</h3><p><code>remoteDebugConf=abc123...</code></p><p>Routes to Developer B's registered client connection and laptop.</p></div>
+          <div class="card"><h3>Developer C</h3><p><code>remoteDebugConf=xyz789...</code></p><p>Routes to Developer C's registered client connection and laptop.</p></div>
+        </div>
+        <div class="callout good" style="margin-top:20px"><strong>No temporary per-developer ingress is needed.</strong> The static canary selects the shared router, while Redis performs the fast, dynamic session-to-developer decision.</div>
+      </div>
+    </section>
+
+    <section id="operations">
+      <div class="shell">
+        <h2>Operational behavior</h2>
+        <div class="status-list">
+          <div class="status-row"><b>No <code>sprLocalConnect</code> cookie</b><span>The request remains on the normal QA6 WebUI backend.</span></div>
+          <div class="status-row"><b>Valid tunnel cookies</b><span>Ingress selects the router; Redis resolves the session; the request reaches the developer laptop.</span></div>
+          <div class="status-row"><b>Old <code>SPR_STICKINESS</code></b><span>The request may remain pinned to normal QA6. Delete the cookie before enabling local routing.</span></div>
+          <div class="status-row"><b>Expired session</b><span>The router cannot resolve a live relay and reports a missing tunnel/fallback outcome.</span></div>
+          <div class="status-row"><b>Relay restart</b><span>The client uses control on <code>8090</code> to request reassignment and reconnect.</span></div>
+          <div class="status-row"><b>Local WebUI stopped</b><span>The request reaches the laptop but local forwarding returns an error.</span></div>
+          <div class="status-row"><b>Tunnel script stopped</b><span>Ports <code>4040</code>, <code>8090</code> and <code>2222</code> close; Redis session state expires by TTL.</span></div>
+        </div>
+
+        <h3 style="margin-top:30px">Final view</h3>
+        <div class="grid three">
+          <div class="card control">
+            <h3>Control plane</h3>
+            <pre>Local client
+  → localhost:8090
+  → outer SSH
+  → kubectl forward
+  → control
+  → Redis assignment</pre>
+          </div>
+          <div class="card data">
+            <h3>Data plane</h3>
+            <pre>QA6 request
+  → canary ingress
+  → router
+  → Redis lookup
+  → relay
+  → SSH tunnel
+  → local client
+  → local WebUI</pre>
+          </div>
+          <div class="card local">
+            <h3>Response plane</h3>
+            <pre>Local WebUI
+  → local client
+  → SSH tunnel
+  → relay
+  → router
+  → ingress
+  → QA6 browser</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell">Sprinklr LocalConnect · QA-to-local development architecture</footer>
+</body>
+</html>

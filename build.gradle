@@ -1,0 +1,54 @@
+// Root build for the tunnel multi-module project.
+// Common configuration is applied to every subproject here so individual
+// module build files stay thin. See PRD-v2.md §13 and BUILD-CHECKLIST.md Part 1.
+
+plugins {
+    id 'org.springframework.boot' version '3.5.16' apply false
+    id 'io.spring.dependency-management' version '1.1.7' apply false
+    // Daemonless OCI image builds — no Dockerfile (PRD-v2.md §12; Part 5).
+    id 'com.google.cloud.tools.jib' version '3.4.4' apply false
+}
+
+allprojects {
+    group = 'com.tunnel'
+    version = '0.1.0-SNAPSHOT'
+
+    repositories {
+        mavenCentral()
+    }
+}
+
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'io.spring.dependency-management'
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+    }
+
+    // Shared Spring Boot BOM so every module aligns on one Spring version
+    // without forcing each module to be a bootable application.
+    dependencyManagement {
+        imports {
+            mavenBom org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES
+        }
+    }
+
+    dependencies {
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        testImplementation 'org.junit.jupiter:junit-jupiter'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+
+    tasks.named('test') {
+        useJUnitPlatform()
+    }
+
+    // Consistent compilation across the repo.
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+        options.compilerArgs << '-parameters'
+    }
+}

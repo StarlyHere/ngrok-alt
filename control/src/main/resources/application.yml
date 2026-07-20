@@ -1,0 +1,38 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: spr-local-connect-coordinator
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      # REDIS_SERVER_PORT avoids Kubernetes' automatic REDIS_PORT=tcp://... variable.
+      port: ${REDIS_SERVER_PORT:6379}
+  kafka:
+    admin:
+      bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka-bootstrap:9092}
+
+control:
+  session-ttl-ms: 15000
+  heartbeat-interval-ms: 5000
+  load-strategy: ${LOAD_STRATEGY:least-connections}
+  token-ttl-ms: 604800000        # 7 days
+  max-sessions-per-owner: ${MAX_SESSIONS_PER_OWNER:5}
+  tunnel-url: ${CONTROL_TUNNEL_URL:}
+  ingress-enabled: ${INGRESS_ENABLED:false}
+  ingress-domain: ${INGRESS_DOMAIN:space-qa6.sprinklr.com}
+  ingress-namespace: ${INGRESS_NAMESPACE:tunnel}
+  ingress-reconcile-ms: ${INGRESS_RECONCILE_MS:60000}
+  kafka-enabled: ${KAFKA_ENABLED:false}
+  kafka-topic-prefix: ${KAFKA_TOPIC_PREFIX:notifications_}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+
+logging:
+  level:
+    com.tunnel.control: INFO

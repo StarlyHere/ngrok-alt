@@ -1,0 +1,8 @@
+// Shared wire protocol: TunnelProvider abstraction, mux framing, DTOs, constants.
+// Kept deliberately dependency-free (pure Java) so it stays cheap to consume,
+// GraalVM-native-image friendly for the client, and re-implementable in Go
+// (the escape hatch in PRD-v2.md §7).
+
+plugins {
+    id 'java-library'
+}

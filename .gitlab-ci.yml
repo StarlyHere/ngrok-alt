@@ -1,0 +1,174 @@
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "api"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+stages: [validate, build, deploy]
+
+variables:
+  BUILD_SPR_LOCAL_CONNECT:
+    value: "false"
+    options: ["false", "true"]
+    description: "Build and publish the coordinator, router, and relay images"
+  DEPLOY_SPR_LOCAL_CONNECT:
+    value: "false"
+    options: ["false", "true"]
+    description: "Build all images and deploy the qa6-tier1 Helm release"
+  JENKINS_URL: "https://qa6-build-int.sprinklr.com/jenkins"
+  JENKINS_BUILD_JOB: "job/build-deploy-jobs/job/ci-docker-image-builder"
+  JENKINS_DEPLOY_JOB: "job/itops-noc-jobs/job/custom-k8s-helm-deployment"
+  GIT_REPO_URL: "git@prod-gitlab.sprinklr.com:sprinklr/main/spr-local-connect.git"
+  HELM_GIT_REPO_URL: "git@prod-gitlab.sprinklr.com:sprinklr-k8s/helm-internal-tools.git"
+  CHART_REPO_BRANCH: "origin/main"
+  BUILD_ITOPS_REPO_BRANCH: "master"
+  DEPLOY_ITOPS_REPO_BRANCH: "origin/custom-helm-deploy"
+  DOCKER_REPO: "asia-south1-docker.pkg.dev/gc-qa6/gc-qa6"
+  POLL_INTERVAL: "15"
+  MAX_WAIT_SECONDS: "2400"
+
+validate:
+  stage: validate
+  image: asia-south1-docker.pkg.dev/gc-qa6/gc-qa6/curl:latest
+  script:
+    - test -f Dockerfile.coordinator
+    - test -f Dockerfile.router
+    - test -f Dockerfile.relay
+    - test -f .gitlab-ci.yml
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+.build-image:
+  stage: build
+  image: asia-south1-docker.pkg.dev/gc-qa6/gc-qa6/curl:latest
+  script:
+    - |
+      set -euo pipefail
+      RESPONSE=$(curl -X POST "$JENKINS_URL/$JENKINS_BUILD_JOB/buildWithParameters" \
+        --user "$QA6_JENKINS_USER:$QA6_JENKINS_TOKEN" \
+        --data-urlencode "GIT_REPO_URL=$GIT_REPO_URL" \
+        --data-urlencode "REPO_BRANCH=$CI_COMMIT_REF_NAME" \
+        --data-urlencode "DOCKERFILE_PATH=$DOCKERFILE_PATH" \
+        --data-urlencode "DOCKER_CONTEXT_PATH=." \
+        --data-urlencode "IMAGE_NAME=$IMAGE_NAME" \
+        --data-urlencode "ITOPS_REPO_BRANCH=$BUILD_ITOPS_REPO_BRANCH" \
+        -s -D - -o /dev/null -w "\n%{http_code}")
+      HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+      QUEUE_URL=$(echo "$RESPONSE" | grep -i '^Location:' | sed 's/Location: *//;s/\r//')
+      test "$HTTP_CODE" = "201"
+      test -n "$QUEUE_URL"
+
+      BUILD_URL=""
+      ELAPSED=0
+      while [ -z "$BUILD_URL" ] && [ "$ELAPSED" -lt "$MAX_WAIT_SECONDS" ]; do
+        sleep "$POLL_INTERVAL"
+        ELAPSED=$((ELAPSED + POLL_INTERVAL))
+        QUEUE_JSON=$(curl -s --user "$QA6_JENKINS_USER:$QA6_JENKINS_TOKEN" "${QUEUE_URL}api/json" || true)
+        BUILD_URL=$(echo "$QUEUE_JSON" | grep -o '"executable":{[^}]*}' | grep -o '"url":"[^"]*"' | sed 's/"url":"//;s/"//' || true)
+      done
+      test -n "$BUILD_URL"
+      BUILD_URL=$(echo "$BUILD_URL" | sed 's|https://qa6-build.sprinklr.com|https://qa6-build-int.sprinklr.com|')
+
+      BUILDING=true
+      ELAPSED=0
+      while [ "$BUILDING" = true ] && [ "$ELAPSED" -lt "$MAX_WAIT_SECONDS" ]; do
+        sleep "$POLL_INTERVAL"
+        ELAPSED=$((ELAPSED + POLL_INTERVAL))
+        BUILD_JSON=$(curl -s --user "$QA6_JENKINS_USER:$QA6_JENKINS_TOKEN" "${BUILD_URL}api/json" || true)
+        BUILDING=$(echo "$BUILD_JSON" | grep -o '"building":[a-z]*' | sed 's/"building"://' || echo true)
+      done
+      RESULT=$(echo "$BUILD_JSON" | grep -o '"result":"[A-Z]*"' | sed 's/"result":"//;s/"//' || echo UNKNOWN)
+      curl -s --user "$QA6_JENKINS_USER:$QA6_JENKINS_TOKEN" "${BUILD_URL}consoleText" -o /tmp/console.log || true
+      if [ "$RESULT" != SUCCESS ]; then tail -120 /tmp/console.log; exit 1; fi
+
+      DONE_LINE=$(grep -v echo /tmp/console.log | grep 'DONE:' | tail -1 || true)
+      IMAGE_NAME_TAG=$(echo "$DONE_LINE" | sed 's|.*DONE: *||;s|.*/||' | tr -d '\r\n ')
+      IMAGE_TAG=$(echo "$IMAGE_NAME_TAG" | sed 's|^[^:]*:||')
+      test -n "$IMAGE_TAG"
+      printf '%s_IMAGE_TAG=%s\n' "$COMPONENT" "$IMAGE_TAG" > build.env
+      echo "Built ${DOCKER_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
+  artifacts:
+    reports:
+      dotenv: build.env
+  rules:
+    - if: $BUILD_SPR_LOCAL_CONNECT == "true"
+    - if: $DEPLOY_SPR_LOCAL_CONNECT == "true"
+
+build-coordinator:
+  extends: .build-image
+  variables:
+    COMPONENT: COORDINATOR
+    IMAGE_NAME: spr-local-connect-coordinator
+    DOCKERFILE_PATH: Dockerfile.coordinator
+
+build-router:
+  extends: .build-image
+  variables:
+    COMPONENT: ROUTER
+    IMAGE_NAME: spr-local-connect-router
+    DOCKERFILE_PATH: Dockerfile.router
+
+build-relay:
+  extends: .build-image
+  variables:
+    COMPONENT: RELAY
+    IMAGE_NAME: spr-local-connect-relay
+    DOCKERFILE_PATH: Dockerfile.relay
+
+deploy-qa6:
+  stage: deploy
+  image: asia-south1-docker.pkg.dev/gc-qa6/gc-qa6/curl:latest
+  needs:
+    - job: build-coordinator
+      artifacts: true
+    - job: build-router
+      artifacts: true
+    - job: build-relay
+      artifacts: true
+  script:
+    - |
+      set -euo pipefail
+      EXTRA_VALUES="--set-string=image.repository=${DOCKER_REPO},image.coordinator.tag=${COORDINATOR_IMAGE_TAG},image.router.tag=${ROUTER_IMAGE_TAG},image.relay.tag=${RELAY_IMAGE_TAG}"
+      RESPONSE=$(curl -X POST "$JENKINS_URL/$JENKINS_DEPLOY_JOB/buildWithParameters" \
+        --user "$QA6_JENKINS_USER:$QA6_JENKINS_TOKEN" \
+        --data-urlencode "GIT_REPO_URL=$HELM_GIT_REPO_URL" \
+        --data-urlencode "KUBE_CLUSTER=apps-gke" \
+        --data-urlencode "CHART_NAME=spr-local-connect" \
+        --data-urlencode "CHART_RELEASE_NAME=qa6-tier1" \
+        --data-urlencode "CHART_NAMESPACE=spr-apps" \
+        --data-urlencode "EXTRA_VALUES=$EXTRA_VALUES" \
+        --data-urlencode "CHART_REPO_BRANCH=$CHART_REPO_BRANCH" \
+        --data-urlencode "ITOPS_REPO_BRANCH=$DEPLOY_ITOPS_REPO_BRANCH" \
+        -s -D - -o /dev/null -w "\n%{http_code}")
+      HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+      QUEUE_URL=$(echo "$RESPONSE" | grep -i '^Location:' | sed 's/Location: *//;s/\r//')
+      test "$HTTP_CODE" = "201"
+      test -n "$QUEUE_URL"
+
+      BUILD_URL=""
+      ELAPSED=0
+      while [ -z "$BUILD_URL" ] && [ "$ELAPSED" -lt "$MAX_WAIT_SECONDS" ]; do
+        sleep "$POLL_INTERVAL"
+        ELAPSED=$((ELAPSED + POLL_INTERVAL))
+        QUEUE_JSON=$(curl -s --user "$QA6_JENKINS_USER:$QA6_JENKINS_TOKEN" "${QUEUE_URL}api/json" || true)
+        BUILD_URL=$(echo "$QUEUE_JSON" | grep -o '"executable":{[^}]*}' | grep -o '"url":"[^"]*"' | sed 's/"url":"//;s/"//' || true)
+      done
+      test -n "$BUILD_URL"
+      BUILD_URL=$(echo "$BUILD_URL" | sed 's|https://qa6-build.sprinklr.com|https://qa6-build-int.sprinklr.com|')
+
+      BUILDING=true
+      ELAPSED=0
+      while [ "$BUILDING" = true ] && [ "$ELAPSED" -lt "$MAX_WAIT_SECONDS" ]; do
+        sleep "$POLL_INTERVAL"
+        ELAPSED=$((ELAPSED + POLL_INTERVAL))
+        BUILD_JSON=$(curl -s --user "$QA6_JENKINS_USER:$QA6_JENKINS_TOKEN" "${BUILD_URL}api/json" || true)
+        BUILDING=$(echo "$BUILD_JSON" | grep -o '"building":[a-z]*' | sed 's/"building"://' || echo true)
+      done
+      RESULT=$(echo "$BUILD_JSON" | grep -o '"result":"[A-Z]*"' | sed 's/"result":"//;s/"//' || echo UNKNOWN)
+      if [ "$RESULT" != SUCCESS ]; then
+        curl -s --user "$QA6_JENKINS_USER:$QA6_JENKINS_TOKEN" "${BUILD_URL}consoleText" | tail -120
+        exit 1
+      fi
+      echo "Deployed Sprinklr LocalConnect qa6-tier1: coordinator=${COORDINATOR_IMAGE_TAG}, router=${ROUTER_IMAGE_TAG}, relay=${RELAY_IMAGE_TAG}"
+  rules:
+    - if: $DEPLOY_SPR_LOCAL_CONNECT == "true"

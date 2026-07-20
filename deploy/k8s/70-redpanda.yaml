@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redpanda
+  namespace: tunnel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redpanda
+  template:
+    metadata:
+      labels:
+        app: redpanda
+    spec:
+      containers:
+        - name: redpanda
+          image: docker.redpanda.com/redpandadata/redpanda:v23.3.21
+          command:
+            - /usr/bin/rpk
+            - redpanda
+            - start
+            - --overprovisioned
+            - --smp=1
+            - --memory=128M
+            - --reserve-memory=0M
+            - --node-id=0
+            - --kafka-addr=0.0.0.0:9092
+            - --advertise-kafka-addr=kafka-bootstrap:9092
+            - --set
+            - redpanda.auto_create_topics_enabled=false
+          ports:
+            - containerPort: 9092
+              name: kafka
+          readinessProbe:
+            exec:
+              command: [/usr/bin/rpk, cluster, health]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 12
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-bootstrap
+  namespace: tunnel
+spec:
+  selector:
+    app: redpanda
+  ports:
+    - port: 9092
+      targetPort: 9092
+      name: kafka

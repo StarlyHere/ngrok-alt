@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: spr-local-connect-client
+  main:
+    banner-mode: "off"
+
+logging:
+  level:
+    root: WARN
+    com.tunnel.client: INFO
+  pattern:
+    console: "%d{HH:mm:ss} %-5level %msg%n"

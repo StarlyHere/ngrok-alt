@@ -1,0 +1,15 @@
+FROM gradle:8.12-jdk21 AS build
+
+WORKDIR /home/gradle/project
+COPY --chown=gradle:gradle . .
+RUN gradle :control:bootJar --no-daemon
+
+FROM eclipse-temurin:21-jre-jammy
+
+RUN mkdir -p /app && chown 99993:99993 /app
+WORKDIR /app
+COPY --from=build --chown=99993:99993 /home/gradle/project/control/build/libs/control-0.1.0-SNAPSHOT.jar app.jar
+
+USER 99993:99993
+EXPOSE 8090
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=70.0", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]

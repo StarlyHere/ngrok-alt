@@ -1,0 +1,50 @@
+# WebUI Placeholder — in-cluster stand-in for webui-app-svc (production).
+# Receives requests from the spr-local-connect-router when no tunnel session is found.
+# Returns {"service":"webui-placeholder","route":"normal"} for all /ui/graphql/** paths.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webui-placeholder
+  namespace: tunnel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webui-placeholder
+  template:
+    metadata:
+      labels:
+        app: webui-placeholder
+    spec:
+      containers:
+        - name: webui-placeholder
+          image: tunnel/webui-placeholder:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:TieredStopAtLevel=1 -XX:ActiveProcessorCount=2"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: 120Mi
+            limits:
+              memory: 240Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webui-placeholder
+  namespace: tunnel
+spec:
+  selector:
+    app: webui-placeholder
+  ports:
+    - port: 3000
+      targetPort: 3000

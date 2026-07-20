@@ -1,0 +1,14 @@
+.git
+.gitlab
+.gradle
+gradlew
+gradlew.bat
+gradle/wrapper
+.idea
+.vscode
+**/build
+*.iml
+*.log
+.env
+demo
+deploy

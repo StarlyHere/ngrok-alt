@@ -1,0 +1,43 @@
+server:
+  # NB: not ${ROUTER_PORT} — k8s injects ROUTER_PORT=tcp://… for the router Service.
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: spr-local-connect-router
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_SERVER_PORT:6379}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka-bootstrap:9092}
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:tunnel-router}
+      auto-offset-reset: latest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      properties:
+        # Without this, new session topics take up to 5 min to appear after creation.
+        metadata.max.age.ms: 10000
+
+router:
+  rate-limit-per-sec: ${RATE_LIMIT_PER_SEC:50}
+  cookie-name: ${ROUTER_COOKIE_NAME:remoteDebugConf}
+  webui-fallback-url: ${WEBUI_FALLBACK_URL:}
+  kafka-enabled: ${KAFKA_ENABLED:false}
+  kafka-topic-prefix: ${KAFKA_TOPIC_PREFIX:notifications_}
+  kafka-topic-pattern: ${KAFKA_TOPIC_PATTERN:notifications_.*}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+
+logging:
+  level:
+    com.tunnel.router: INFO

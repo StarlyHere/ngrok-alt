@@ -1,0 +1,44 @@
+# The sample developer app (PRD-v2.md §6). In this in-cluster demo it runs as one
+# shared Deployment that the tunnel clients forward to (their single allowlisted
+# target). On a real developer machine this would be localhost.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-service
+  namespace: tunnel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dev-service
+  template:
+    metadata:
+      labels:
+        app: dev-service
+    spec:
+      containers:
+        - name: dev-service
+          image: tunnel/dev-service:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:TieredStopAtLevel=1 -XX:ActiveProcessorCount=2"
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              memory: 120Mi
+            limits:
+              memory: 240Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dev-service
+  namespace: tunnel
+spec:
+  selector:
+    app: dev-service
+  ports:
+    - port: 3000
+      targetPort: 3000

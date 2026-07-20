@@ -1,0 +1,116 @@
+# Coordinator (control plane) — session/subdomain issuance + Least-Connections
+# assignment + auth (PRD-v2.md §6). Reached by clients via the `spr-local-connect-coordinator` Service.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spr-local-connect-coordinator
+  namespace: tunnel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spr-local-connect-coordinator
+  template:
+    metadata:
+      labels:
+        app: spr-local-connect-coordinator
+    spec:
+      serviceAccountName: tunnel-coordinator
+      containers:
+        - name: spr-local-connect-coordinator
+          image: spr-local-connect-coordinator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8090
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:TieredStopAtLevel=1 -XX:ActiveProcessorCount=2"
+            - name: REDIS_HOST
+              value: redis
+            # Demo clients all share owner 'alice'; lift the per-owner quota.
+            - name: MAX_SESSIONS_PER_OWNER
+              value: "50"
+            # Public WebSocket URL returned to clients in AssignmentResponse.
+            # Points to the spr-local-connect-relay NodePort Service (sessionAffinity: ClientIP).
+            # Override with the real node IP when running outside Minikube.
+            - name: CONTROL_TUNNEL_URL
+              value: "TUNNEL_URL_PLACEHOLDER"
+            - name: INGRESS_ENABLED
+              value: "true"
+            - name: INGRESS_DOMAIN
+              value: "tunnel.local"
+            - name: KAFKA_ENABLED
+              value: "true"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka-bootstrap:9092"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: 140Mi
+            limits:
+              memory: 280Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spr-local-connect-coordinator
+  namespace: tunnel
+spec:
+  selector:
+    app: spr-local-connect-coordinator
+  ports:
+    - port: 8090
+      targetPort: 8090
+---
+# RBAC — coordinator needs get/list/create/delete on ingresses only.
+# Least-privilege: no access to secrets, pods, or any other resource.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tunnel-coordinator
+  namespace: tunnel
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tunnel-coordinator-ingress-manager
+  namespace: tunnel
+rules:
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "create", "delete", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tunnel-coordinator-ingress-manager
+  namespace: tunnel
+subjects:
+  - kind: ServiceAccount
+    name: tunnel-coordinator
+    namespace: tunnel
+roleRef:
+  kind: Role
+  name: tunnel-coordinator-ingress-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+# NodePort for external access — developer laptops reach the Coordinator at
+# http://<minikube-ip>:30090/sessions to obtain a pod assignment.
+apiVersion: v1
+kind: Service
+metadata:
+  name: spr-local-connect-coordinator-external
+  namespace: tunnel
+spec:
+  type: NodePort
+  selector:
+    app: spr-local-connect-coordinator
+  ports:
+    - port: 8090
+      targetPort: 8090
+      nodePort: 30092

@@ -1,0 +1,33 @@
+server:
+  # NB: not ${GATEWAY_PORT} — k8s injects <SERVICE>_PORT=tcp://… for any Service.
+  port: ${SERVER_PORT:9000}
+
+spring:
+  application:
+    name: qa6-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_SERVER_PORT:6379}
+
+gateway:
+  # Where tunnel/debug requests are forwarded (the existing Router, unchanged).
+  router-url: ${GATEWAY_ROUTER_URL:http://localhost:8080}
+  # Tunnel routing indicator: header X-Tunnel-Session OR this cookie (value = session id).
+  cookie-name: ${GATEWAY_COOKIE_NAME:remoteDebugConf}
+  # Strict: an indicator with an invalid/expired session → tunnel-not-found.
+  strict-not-found: ${GATEWAY_STRICT_NOT_FOUND:true}
+  # Fail-closed: if Redis is unreachable, tunnel requests error (normal traffic is unaffected).
+  fail-closed: ${GATEWAY_FAIL_CLOSED:true}
+  # Placeholder served for normal (non-tunnel) traffic until a real QA6 upstream is wired.
+  normal-placeholder-body: ${GATEWAY_NORMAL_BODY:{"service":"qa6-gateway","route":"normal"}}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+
+logging:
+  level:
+    com.tunnel.qa6gateway: INFO

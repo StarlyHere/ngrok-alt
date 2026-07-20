@@ -1,0 +1,35 @@
+# Gradle
+.gradle/
+build/
+gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.iws
+*.ipr
+out/
+
+# OS
+.DS_Store
+
+# Client config (created by `tunnel login`)
+.tunnel/
+
+# Native image / binaries
+*.bin
+client/client
+
+# Markdown docs (keep README)
+*.md
+!README.md
+
+# Claude config
+.claude/
+
+# Redis local artifact
+dump.rdb
+
+# VS Code IDE artifacts
+**/bin/

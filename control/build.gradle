@@ -1,0 +1,33 @@
+// Control Plane (Coordinator) — auth, session/subdomain issuance, Least-Connections
+// assignment (PRD-v2.md §6). Part 5: Jib image + Prometheus metrics.
+
+plugins {
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+    id 'com.google.cloud.tools.jib'
+}
+
+dependencies {
+    implementation project(':protocol')
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+    // Kubernetes client for ingress lifecycle management (steps 6-8).
+    // Auto-detects the in-cluster ServiceAccount token from the standard mount path.
+    implementation 'io.fabric8:kubernetes-client:7.8.0'
+    implementation 'org.springframework.kafka:spring-kafka'
+}
+
+jib {
+    from { image = 'eclipse-temurin:21-jre-jammy' }
+    to {
+        image = 'spr-local-connect-coordinator'
+        tags = ['latest']
+    }
+    container {
+        ports = ['8090']
+        jvmFlags = ['-XX:MaxRAMPercentage=70.0', '-XX:+UseSerialGC']
+        creationTime = 'USE_CURRENT_TIMESTAMP'
+    }
+}

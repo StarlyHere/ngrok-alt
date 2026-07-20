@@ -1,0 +1,32 @@
+// Tunnel Pod — SSH tunnel server, mux/demux, in-memory registry, Redis self-
+// registration (PRD-v2.md §6, §10). Part 5: Jib image + Prometheus metrics.
+
+plugins {
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+    id 'com.google.cloud.tools.jib'
+}
+
+dependencies {
+    implementation project(':protocol')
+    implementation project(':transport-ssh')
+    implementation 'org.apache.sshd:sshd-core:2.13.2'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+}
+
+jib {
+    from { image = 'eclipse-temurin:21-jre-jammy' }
+    to {
+        image = 'spr-local-connect-relay'
+        tags = ['latest']
+    }
+    container {
+        ports = ['8080']
+        jvmFlags = ['-XX:MaxRAMPercentage=70.0', '-XX:+UseSerialGC']
+        creationTime = 'USE_CURRENT_TIMESTAMP'
+    }
+}
