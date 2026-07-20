@@ -509,7 +509,7 @@ POST http://127.0.0.1:8080/ui/graphql/searchStandardEntities</pre>
           <div class="status-row"><b>No <code>sprLocalConnect</code> cookie</b><span>The request remains on the normal QA6 WebUI backend.</span></div>
           <div class="status-row"><b>Valid tunnel cookies</b><span>Ingress selects the router; Redis resolves the session; the request reaches the developer laptop.</span></div>
           <div class="status-row"><b>Old <code>SPR_STICKINESS</code></b><span>The request may remain pinned to normal QA6. Delete the cookie before enabling local routing.</span></div>
-          <div class="status-row"><b>Expired session</b><span>The router cannot resolve a live relay and reports a missing tunnel/fallback outcome.</span></div>
+          <div class="status-row"><b>Expired session or missing relay</b><span>The router validates that the original host contains the exact <code>qa6</code> environment token and ends in <code>.sprinklr.com</code>, rebuilds its HTTPS URL, removes the <code>sprLocalConnect</code> and <code>remoteDebugConf</code> cookies, and replays the request to normal WebUI. If validation or replay fails, it returns HTTP <code>502</code> with <code>{"error":"tunnel-not-found"}</code>.</span></div>
           <div class="status-row"><b>Relay restart</b><span>The client uses the coordinator on <code>8090</code> to request reassignment and reconnect.</span></div>
           <div class="status-row"><b>Local WebUI stopped</b><span>The request reaches the laptop but local forwarding returns an error.</span></div>
           <div class="status-row"><b>Tunnel script stopped</b><span>Ports <code>4040</code>, <code>8090</code> and <code>2222</code> close; Redis session state expires by TTL.</span></div>
