@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sprinklr LocalConnect Live QA"
+  short_description: "Run session-scoped live QA through QA6"
+  default_prompt: "Use $spr-local-connect-live-qa to verify my local change against an authenticated QA6 browser session."

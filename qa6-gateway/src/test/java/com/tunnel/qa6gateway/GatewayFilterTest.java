@@ -107,6 +107,18 @@ class GatewayFilterTest {
     }
 
     @Test
+    void microserviceSuffixIsRemovedBeforeSessionValidation() throws Exception {
+        when(gate.validate("sess-cookie")).thenReturn(valid(null));
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/hello");
+        req.setCookies(new Cookie("remoteDebugConf", "sess-cookie:process-engine"));
+
+        MockHttpServletResponse resp = run(req);
+
+        assertEquals(200, resp.getStatus());
+        assertEquals("sess-cookie", seenSession.get());
+    }
+
+    @Test
     void matchingPathPatternIsForwarded() throws Exception {
         when(gate.validate("sess-path")).thenReturn(valid("/process/**,/ui/graphql/**"));
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/process/start");

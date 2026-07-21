@@ -17,6 +17,14 @@ browser → QA6 canary Ingress → router → relay ──SSH──▶ your lapt
 5. Router reads `remoteDebugConf=<sessionId>`, resolves the owning relay in Redis, and forwards the request into the tunnel
 6. Responses travel back the same way
 
+For WebUI-to-microservice gRPC calls, `remoteDebugConf=<sessionId>:<microservice>`
+selects only the named destination. Sprinklr's gRPC channel uses the router's
+HTTP CONNECT port (`8181`); the router resolves the session, connects to the
+relay's raw bridge (`8182`), and the existing multiplexed SSH connection carries
+the untouched TCP/gRPC byte stream to the local port.
+Raw streams intentionally bypass the HTTP inspector on `4040`; verify them in
+the local microservice logs or debugger.
+
 If the selected session is absent or has no live relay, the router replays the
 request through its original QA ingress hostname after removing only the
 `sprLocalConnect`, `remoteDebugConf`, and tunnel-routing header. The replay is
@@ -136,6 +144,18 @@ local WebUI backend development, set both cookies with `Path=/ui`; this keeps
 frontend routes such as `/care/...` on normal QA6 while tunnelling `/ui/...`
 requests. Use `Path=/` only when the entire host should go to the local service.
 
+To intercept a downstream microservice instead, append its exact tier type:
+
+```text
+remoteDebugConf=<their-session-id>:process-engine
+```
+
+In microservice mode, do **not** set `sprLocalConnect`. The original request must
+stay on the QA6 WebUI so its gRPC client can select the named tier and use the
+cluster-internal CONNECT router. Only that downstream connection is tunnelled to
+the local service. `sprLocalConnect=always` is reserved for routing the WebUI
+HTTP request itself to a locally running WebUI.
+
 After deployment, connect to the cluster and expose the two developer-facing
 ports locally:
 
@@ -155,6 +175,9 @@ requests and use the QA6 launcher instead of managing those processes manually:
 ```bash
 # Example: the local application is already listening on port 8080
 scripts/qa6-local-connect.sh 8080
+
+# Route WebUI calls whose destination tier type is process-engine.
+scripts/qa6-local-connect.sh 8080 "$(openssl rand -hex 16)" process-engine
 ```
 
 The launcher builds the client incrementally, opens the access-host SSH session,

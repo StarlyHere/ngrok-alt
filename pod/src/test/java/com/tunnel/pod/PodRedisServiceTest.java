@@ -26,7 +26,7 @@ class PodRedisServiceTest {
 
         PodProperties properties = new PodProperties(
                 "pod-1", "10.0.0.7", 8080, false,
-                3_000, 6_000, 15_000, 256, 2222);
+                3_000, 6_000, 15_000, 256, 2222, 8182);
         new PodRedisService(redis, properties).heartbeatPod();
 
         @SuppressWarnings("unchecked")

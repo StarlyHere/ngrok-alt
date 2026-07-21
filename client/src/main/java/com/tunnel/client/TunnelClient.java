@@ -13,11 +13,16 @@ import com.tunnel.protocol.dto.RegisterMessage;
 import com.tunnel.protocol.dto.Session;
 import com.tunnel.protocol.frame.Frame;
 import com.tunnel.protocol.frame.FrameType;
+import com.tunnel.protocol.transport.StreamProtocol;
 import com.tunnel.protocol.transport.TunnelConnection;
 import com.tunnel.protocol.transport.TunnelProvider;
 import com.tunnel.protocol.transport.TunnelStream;
 import com.tunnel.client.inspect.RequestInspector;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.PushbackInputStream;
+import java.net.Socket;
 import java.net.URI;
 import java.security.SecureRandom;
 import java.util.HexFormat;
@@ -197,7 +202,12 @@ public class TunnelClient {
     private void handle(TunnelStream stream) {
         RequestInspector.Record record = null;
         try {
-            HttpRequestMessage req = HttpMessageCodec.readRequest(stream.input());
+            PushbackInputStream input = new PushbackInputStream(stream.input(), 4);
+            if (StreamProtocol.isTcp(input)) {
+                forwardTcp(stream, input);
+                return;
+            }
+            HttpRequestMessage req = HttpMessageCodec.readRequest(input);
             String trace = firstHeader(req.headers(), TunnelConstants.HEADER_TRACE);
             record = inspector.begin(req.method(), req.path(), trace, req.body().length);
             try {
@@ -217,6 +227,44 @@ public class TunnelClient {
         } finally {
             stream.close();
         }
+    }
+
+    private void forwardTcp(TunnelStream stream, InputStream tunnelInput) throws IOException {
+        Socket local = new Socket(config.targetHost(), config.targetPort());
+        Thread upstream = new Thread(
+                () -> copyAndClose(local, stream, socketInput(local), stream.output()),
+                "local-tcp-upstream");
+        upstream.setDaemon(true);
+        upstream.start();
+        try {
+            copy(tunnelInput, local.getOutputStream());
+        } finally {
+            stream.close();
+            local.close();
+        }
+    }
+
+    private static InputStream socketInput(Socket socket) {
+        try {
+            return socket.getInputStream();
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static void copyAndClose(Socket socket, TunnelStream stream, InputStream input, OutputStream output) {
+        try {
+            copy(input, output);
+        } catch (IOException ignored) {
+        } finally {
+            stream.close();
+            try { socket.close(); } catch (IOException ignored) {}
+        }
+    }
+
+    private static void copy(InputStream input, OutputStream output) throws IOException {
+        input.transferTo(output);
+        output.flush();
     }
 
     private void sendHeartbeat(TunnelConnection conn) {

@@ -22,6 +22,7 @@ pod:
   session-ttl-ms: 15000
   max-streams-per-session: 256
   ssh-port: ${POD_SSH_PORT:2222}
+  tcp-port: ${POD_TCP_PORT:8182}
 
 management:
   endpoints:

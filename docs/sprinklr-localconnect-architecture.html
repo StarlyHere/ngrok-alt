@@ -286,9 +286,9 @@
               <div class="zone-title">QA6 Kubernetes</div>
               <div class="node">WebUI canary ingress <small>Cookie-based opt-in</small></div>
               <div class="arrow">↓</div>
-              <div class="node">Router <small>HTTP :8080</small></div>
+              <div class="node">Router <small>HTTP :8080 · CONNECT :8181</small></div>
               <div class="arrow">↓ Redis lookup</div>
-              <div class="node">Relay <small>HTTP :8080 · SSH :2222</small></div>
+              <div class="node">Relay <small>HTTP :8080 · TCP :8182 · SSH :2222</small></div>
               <div class="arrow">↔</div>
               <div class="node">Coordinator + Redis <small>Assignment and temporary state</small></div>
             </div>
@@ -315,12 +315,13 @@
           </article>
           <article class="card data">
             <h3>Router</h3>
-            <p>The session-aware HTTP router on port <code>8080</code>.</p>
+            <p>The session-aware HTTP router on <code>8080</code> and raw-stream CONNECT proxy on <code>8181</code>.</p>
             <ul>
               <li>Reads <code>remoteDebugConf</code></li>
               <li>Resolves session and pod in Redis</li>
               <li>Adds tunnel session and trace headers</li>
               <li>Forwards the complete HTTP request</li>
+              <li>Routes gRPC/TCP connections without decoding them</li>
             </ul>
           </article>
           <article class="card data">
@@ -328,6 +329,7 @@
             <p>Bridges cluster HTTP traffic into the persistent SSH tunnel.</p>
             <ul>
               <li>Accepts router traffic on <code>8080</code></li>
+              <li>Accepts raw router streams on <code>8182</code></li>
               <li>Accepts client SSH on <code>2222</code></li>
               <li>Maps sessions to live connections</li>
               <li>Multiplexes concurrent requests</li>
@@ -378,7 +380,9 @@
             <tr><td><code>8080</code></td><td>Developer laptop</td><td>The local WebUI or microservice receiving tunneled requests.</td></tr>
             <tr><td><code>8090</code></td><td>QA6 coordinator</td><td>Authentication, session creation and reassignment.</td></tr>
             <tr><td><code>8080</code></td><td>QA6 router</td><td>Receives selected WebUI requests from ingress.</td></tr>
+            <tr><td><code>8181</code></td><td>QA6 router</td><td>HTTP CONNECT proxy used by QA6 WebUI gRPC clients.</td></tr>
             <tr><td><code>8080</code></td><td>QA6 relay</td><td>Receives router requests before placing them on the tunnel.</td></tr>
+            <tr><td><code>8182</code></td><td>QA6 relay</td><td>Cluster-internal raw TCP bridge from the assigned router connection.</td></tr>
             <tr><td><code>2222</code></td><td>QA6 relay</td><td>Persistent application-level SSH tunnel server.</td></tr>
           </tbody>
         </table>
@@ -477,6 +481,18 @@ lastSeen = &lt;timestamp&gt;</pre>
           <div class="flow-step">QA6 browser</div>
         </div>
 
+        <h3 style="margin-top:24px">Selective microservice/gRPC plane</h3>
+        <p class="section-lead"><code>remoteDebugConf=&lt;session-id&gt;:&lt;microservice&gt;</code> is read by the normal QA6 WebUI. Do not set <code>sprLocalConnect</code> in this mode: the WebUI request stays in QA6, while only calls to the named tier are intercepted.</p>
+        <div class="flow data-flow">
+          <div class="flow-step">QA6 WebUI<small>Matching destination tier</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">CONNECT router :8181<small>Session in proxy auth</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">Redis<small>Session → relay pod</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">Relay TCP :8182<small>Raw stream bridge</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">SSH mux<small>Untouched HTTP/2 bytes</small></div><div class="flow-arrow">→</div>
+          <div class="flow-step">Local client</div><div class="flow-arrow">→</div>
+          <div class="flow-step">Local microservice</div>
+        </div>
+
         <div class="card" style="margin-top:22px">
           <h3>What is preserved?</h3>
           <p>The client forwards the original HTTP method, path, query string, headers, cookies and body to the local service. The status, response headers and body return through the same tunnel.</p>
@@ -546,6 +562,16 @@ POST http://127.0.0.1:8080/ui/graphql/searchStandardEntities</pre>
   → router
   → ingress
   → QA6 browser</pre>
+          </div>
+          <div class="card data">
+            <h3>gRPC/TCP plane</h3>
+            <pre>QA6 WebUI
+  → CONNECT router :8181
+  → Redis lookup
+  → relay TCP :8182
+  → SSH mux
+  → local client
+  → local microservice</pre>
           </div>
         </div>
       </div>

@@ -37,8 +37,8 @@
       <h2>What gets deployed</h2>
       <div class="grid three">
         <article class="card"><h3>Coordinator</h3><p>Login, token issuance, session creation and relay assignment. Image: <code>spr-local-connect-coordinator</code>.</p></article>
-        <article class="card"><h3>Router</h3><p>Reads the developer session cookie, looks up Redis, and forwards selected HTTP requests. Image: <code>spr-local-connect-router</code>.</p></article>
-        <article class="card"><h3>Relay</h3><p>Owns the persistent SSH connection and carries requests to the laptop. Image: <code>spr-local-connect-relay</code>.</p></article>
+        <article class="card"><h3>Router</h3><p>Forwards selected HTTP requests on <code>8080</code> and accepts session-aware HTTP CONNECT traffic for gRPC/raw TCP on <code>8181</code>. Image: <code>spr-local-connect-router</code>.</p></article>
+        <article class="card"><h3>Relay</h3><p>Owns the persistent SSH connection and carries HTTP plus raw TCP streams to the laptop; its cluster-internal TCP bridge listens on <code>8182</code>. Image: <code>spr-local-connect-relay</code>.</p></article>
       </div>
       <div class="callout good"><strong>One Helm release, three Deployments.</strong> Redis and Kafka already exist in QA6. The optional gateway prototype and laptop client are not deployed by this chart.</div>
       <div class="callout good"><strong>Default path: merge the MR.</strong> A push pipeline on the protected default branch builds coordinator, router and relay through Jenkins, exports their image tags, and deploys <code>qa6-tier1</code> only after every build succeeds. The GitLab project needs protected, masked <code>QA6_JENKINS_USER</code> and <code>QA6_JENKINS_TOKEN</code> variables. The manual steps below are the recovery and troubleshooting path.</div>

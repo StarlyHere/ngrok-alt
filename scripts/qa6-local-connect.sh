@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Open a Sprinklr LocalConnect tunnel from QA6 to a service on this laptop.
 #
-# Usage: scripts/qa6-local-connect.sh <local-port> [session-id]
+# Usage: scripts/qa6-local-connect.sh <local-port> [session-id] [microservice]
 # Example: scripts/qa6-local-connect.sh 8080
 #
 # SSH and sudo may prompt interactively. Passwords are never stored here.
@@ -35,7 +35,7 @@ CLIENT_WORKER_PID=""
 
 usage() {
   cat <<'EOF'
-Usage: scripts/qa6-local-connect.sh <local-port> [session-id]
+Usage: scripts/qa6-local-connect.sh <local-port> [session-id] [microservice]
 
 Starts the QA6 access SSH connection, Kubernetes port-forwards, and the local
 Sprinklr LocalConnect client. Start your local application before this script.
@@ -43,6 +43,9 @@ Sprinklr LocalConnect client. Start your local application before this script.
 Arguments:
   local-port   Port on 127.0.0.1 where the local application is listening
   session-id   Optional fixed session ID; otherwise a random ID is generated
+  microservice Optional destination microservice name. When supplied, the
+               remoteDebugConf cookie becomes <session-id>:<microservice> and
+               normal QA6 WebUI requests selectively call this local service.
 
 Useful environment overrides:
   QA6_ACCESS_HOST          SSH jump host
@@ -53,6 +56,7 @@ Useful environment overrides:
   QA6_LOCAL_CONTROL_PORT   Laptop coordinator port (default: 8090)
   QA6_REMOTE_PORT_BASE     First of two ports used on the shared QA6 host
   QA6_COOKIE_PATH          Debug-cookie path (default: /ui; use / for full-host routing)
+  QA6_MICROSERVICE         Destination microservice to intercept
 EOF
 }
 
@@ -180,7 +184,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-[[ $# -ge 1 && $# -le 2 ]] || { usage >&2; exit 2; }
+[[ $# -ge 1 && $# -le 3 ]] || { usage >&2; exit 2; }
 
 readonly LOCAL_APP_PORT="$1"
 [[ "$LOCAL_APP_PORT" =~ ^[0-9]+$ ]] \
@@ -203,19 +207,42 @@ port_is_open "$LOCAL_SSH_PORT" \
   && die "localhost:${LOCAL_SSH_PORT} is already in use"
 
 readonly SESSION_ID="${2:-$(openssl rand -hex 16)}"
-[[ "$SESSION_ID" =~ ^[A-Za-z0-9._:-]+$ ]] || die "session ID contains unsupported characters"
+readonly MICROSERVICE="${3:-${QA6_MICROSERVICE:-}}"
+readonly REMOTE_DEBUG_CONF="${SESSION_ID}${MICROSERVICE:+:${MICROSERVICE}}"
+[[ "$SESSION_ID" =~ ^[A-Za-z0-9._-]+$ ]] || die "session ID contains unsupported characters"
+[[ -z "$MICROSERVICE" || "$MICROSERVICE" =~ ^[A-Za-z0-9._-]+$ ]] \
+  || die "microservice contains unsupported characters"
 [[ "$COOKIE_PATH" == /* ]] || die "QA6_COOKIE_PATH must start with /"
 
 printf 'Building the Sprinklr LocalConnect client (Gradle reuses unchanged outputs)...\n'
 "$REPO_ROOT/gradlew" -p "$REPO_ROOT" :client:bootJar --no-daemon
 
-cat <<EOF
+if [[ -n "$MICROSERVICE" ]]; then
+  cat <<EOF
+
+QA6 tunnel session: $SESSION_ID
+
+Set this cookie on the QA6 WebUI hostname:
+  remoteDebugConf=$REMOTE_DEBUG_CONF  Path=$COOKIE_PATH
+
+Do not set sprLocalConnect for this mode. The QA6 WebUI must handle the HTTP
+request normally; only its calls to $MICROSERVICE are sent through LocalConnect.
+
+Traffic selected by this cookie will be forwarded to:
+  127.0.0.1:$LOCAL_APP_PORT
+
+Opening QA6 access. SSH and sudo may prompt for passwords.
+Press Ctrl+C to close the tunnel.
+
+EOF
+else
+  cat <<EOF
 
 QA6 tunnel session: $SESSION_ID
 
 Set these cookies on the QA6 WebUI hostname:
   sprLocalConnect=always                  Path=$COOKIE_PATH
-  remoteDebugConf=$SESSION_ID  Path=$COOKIE_PATH
+  remoteDebugConf=$REMOTE_DEBUG_CONF  Path=$COOKIE_PATH
 
 Path=$COOKIE_PATH keeps frontend routes such as /care on normal QA6 while
 routing matching backend requests to this tunnel.
@@ -227,6 +254,7 @@ Opening QA6 access. SSH and sudo may prompt for passwords.
 Press Ctrl+C to close the tunnel.
 
 EOF
+fi
 
 trap cleanup EXIT
 trap 'exit 130' INT TERM

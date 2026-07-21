@@ -25,6 +25,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 class RoutingFilterTest {
 
     @Test
+    void extractsSessionFromMicroserviceIndicator() {
+        assertThat(RoutingFilter.sessionIdFromIndicator("session-1:process-engine")).isEqualTo("session-1");
+    }
+
+    @Test
     void reconstructsOriginalSprinklrIngressUrlFromForwardedHeaders() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("X-Forwarded-Proto", "https");

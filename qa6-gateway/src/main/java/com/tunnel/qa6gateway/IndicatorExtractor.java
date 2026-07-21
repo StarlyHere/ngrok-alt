@@ -28,16 +28,23 @@ public class IndicatorExtractor {
     public Optional<String> extract(HttpServletRequest request) {
         String header = request.getHeader(TunnelConstants.HEADER_SESSION);
         if (header != null && !header.isBlank()) {
-            return Optional.of(header.trim());
+            return sessionId(header);
         }
         Cookie[] cookies = request.getCookies();
         if (cookies != null) {
             for (Cookie c : cookies) {
                 if (cookieName.equals(c.getName()) && c.getValue() != null && !c.getValue().isBlank()) {
-                    return Optional.of(c.getValue().trim());
+                    return sessionId(c.getValue());
                 }
             }
         }
         return Optional.empty();
+    }
+
+    private static Optional<String> sessionId(String indicator) {
+        String value = indicator.trim();
+        int separator = value.indexOf(':');
+        String session = separator < 0 ? value : value.substring(0, separator);
+        return session.isBlank() ? Optional.empty() : Optional.of(session);
     }
 }

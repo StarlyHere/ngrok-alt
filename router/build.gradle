@@ -23,7 +23,7 @@ jib {
         tags = ['latest']
     }
     container {
-        ports = ['8080']
+        ports = ['8080', '8181']
         jvmFlags = ['-XX:MaxRAMPercentage=70.0', '-XX:+UseSerialGC']
         creationTime = 'USE_CURRENT_TIMESTAMP'
     }

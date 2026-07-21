@@ -15,6 +15,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param sessionTtlMs         TTL the pod (re)applies to a session on register/heartbeat
  * @param maxStreamsPerSession per-session concurrent stream cap (backpressure)
  * @param sshPort              port the SSH tunnel server listens on
+ * @param tcpPort              cluster-internal raw TCP bridge port
  */
 @ConfigurationProperties(prefix = "pod")
 public record PodProperties(
@@ -26,7 +27,8 @@ public record PodProperties(
         long podTtlMs,
         long sessionTtlMs,
         int maxStreamsPerSession,
-        int sshPort) {
+        int sshPort,
+        int tcpPort) {
 
     public PodProperties {
         if (id == null || id.isBlank()) {
@@ -52,6 +54,9 @@ public record PodProperties(
         }
         if (sshPort <= 0) {
             sshPort = 2222;
+        }
+        if (tcpPort <= 0) {
+            tcpPort = 8182;
         }
     }
 }
