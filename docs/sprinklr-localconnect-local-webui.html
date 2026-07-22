@@ -29,6 +29,7 @@
   <nav><div class="shell">
     <a href="sprinklr-localconnect-architecture.html">Architecture</a>
     <a href="sprinklr-localconnect-deployment.html">Deployment guide</a>
+    <a href="sprinklr-localconnect-local-microservice.html">Local microservice guide</a>
     <a href="#prerequisites">Prerequisites</a><a href="#webui">Start WebUI</a><a href="#tunnel">Start tunnel</a><a href="#cookies">Set cookies</a><a href="#test">Test</a><a href="#diagnose">Diagnose</a>
   </div></nav>
 
@@ -66,6 +67,7 @@ lsof -nP -iTCP:8080 -sTCP:LISTEN</pre>
 
     <section id="tunnel"><div class="shell">
       <h2>2. Start the LocalConnect tunnel</h2>
+      <div class="callout good"><strong>This guide covers WebUI HTTP mode.</strong> Use a plain session ID, set both routing cookies, and do not append a tier alias. For a downstream gRPC service, follow the separate microservice guide.</div>
       <pre>cd /Users/lakshay.jindal/Desktop/sprinklr_repos/spr-local-connect
 scripts/qa6-local-connect.sh 8080</pre>
       <p>The script will prompt for the QA6 Kubernetes host password and then sudo. Keep this terminal open.</p>
@@ -135,7 +137,7 @@ kubectl -n spr-apps logs -f deploy/spr-local-connect-tier1-relay</pre>
     <section id="diagnose"><div class="shell">
       <h2>Diagnosis by symptom</h2>
       <table><thead><tr><th>Symptom</th><th>Check</th><th>Likely resolution</th></tr></thead><tbody>
-        <tr><td><code>localhost:4040</code> refused</td><td>Are <code>8090</code> and <code>2222</code> listening? Did “tunnel established” appear?</td><td>Restart the launcher and keep its terminal open. Fix coordinator/relay port-forward failure first.</td></tr>
+        <tr><td><code>localhost:4040</code> refused</td><td>Are <code>8090</code> and <code>2222</code> listening? Did “tunnel established” appear? Is an older client already holding port <code>4040</code>?</td><td>Stop the stale client, restart the launcher, and keep its terminal open. Fix coordinator/relay port-forward failure first.</td></tr>
         <tr><td>“Kubernetes port-forward stopped unexpectedly”</td><td>Read the two exact <code>/tmp/spr-local-connect-...log</code> paths printed by the script.</td><td>Deploy missing Services, correct the namespace/name, or restore pod readiness.</td></tr>
         <tr><td>Router has no log for the request</td><td>Check host/path in canary Ingress, cookie domain/path/value, and <code>SPR_STICKINESS</code>.</td><td>Deploy the correct WebUI release and clean up browser cookies.</td></tr>
         <tr><td>Router says “no session”</td><td>Compare <code>remoteDebugConf</code> byte-for-byte with the current script output.</td><td>Replace the browser cookie with the current session ID.</td></tr>
@@ -162,6 +164,6 @@ lsof -nP -iTCP:4040 -sTCP:LISTEN</pre>
 remoteDebugConf</pre>
     </div></section>
   </main>
-  <footer class="shell">Sprinklr LocalConnect · local WebUI runbook · <a href="sprinklr-localconnect-architecture.html">Architecture</a> · <a href="sprinklr-localconnect-deployment.html">Deployment</a></footer>
+  <footer class="shell">Sprinklr LocalConnect · local WebUI runbook · <a href="sprinklr-localconnect-architecture.html">Architecture</a> · <a href="sprinklr-localconnect-deployment.html">Deployment</a> · <a href="sprinklr-localconnect-local-microservice.html">Local microservice</a></footer>
 </body>
 </html>

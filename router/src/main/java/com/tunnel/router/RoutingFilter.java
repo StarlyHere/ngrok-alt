@@ -183,20 +183,27 @@ public class RoutingFilter extends OncePerRequestFilter {
         // 1. explicit header (set by gateway or test tooling)
         String header = request.getHeader(TunnelConstants.HEADER_SESSION);
         if (header != null && !header.isBlank()) {
-            return header;
+            return sessionIdFromIndicator(header);
         }
         // 2. session cookie (browser WebUI path)
         Cookie[] cookies = request.getCookies();
         if (cookies != null) {
             for (Cookie c : cookies) {
                 if (cookieName.equals(c.getName())) {
-                    return c.getValue();
+                    return sessionIdFromIndicator(c.getValue());
                 }
             }
         }
         // 3. subdomain (backward compat with Host-based routing)
         String subdomain = subdomainOf(request.getHeader("Host"));
         return resolver.sessionForSubdomain(subdomain).orElse(null);
+    }
+
+    /** LocalConnect indicators may append a destination microservice after the session id. */
+    static String sessionIdFromIndicator(String indicator) {
+        if (indicator == null || indicator.isBlank()) return null;
+        int separator = indicator.indexOf(':');
+        return separator < 0 ? indicator : indicator.substring(0, separator);
     }
 
     /**

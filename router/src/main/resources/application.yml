@@ -21,6 +21,8 @@ spring:
         metadata.max.age.ms: 10000
 
 router:
+  connect-port: ${CONNECT_PORT:8181}
+  relay-tcp-port: ${RELAY_TCP_PORT:8182}
   rate-limit-per-sec: ${RATE_LIMIT_PER_SEC:50}
   cookie-name: ${ROUTER_COOKIE_NAME:remoteDebugConf}
   selector-cookie-name: ${ROUTER_SELECTOR_COOKIE_NAME:sprLocalConnect}

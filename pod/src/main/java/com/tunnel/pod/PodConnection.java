@@ -16,8 +16,12 @@ import com.tunnel.protocol.frame.FrameCodec;
 import com.tunnel.protocol.frame.FrameType;
 import com.tunnel.protocol.mux.FrameChannel;
 import com.tunnel.protocol.mux.MuxConnection;
+import com.tunnel.protocol.transport.StreamProtocol;
 import com.tunnel.protocol.transport.TunnelStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -100,8 +104,8 @@ public class PodConnection {
         // Ownership boundary (§9.2.3): the session's owner (set by the Coordinator)
         // must match the token the transport handshake was authenticated with.
         String sessionOwner = redis.sessionOwner(msg.sessionId()).orElse(null);
-        if (sessionOwner != null && !sessionOwner.equals(authedOwner)) {
-            log.warn("owner mismatch on register: token owner '{}' != session owner '{}' for {}",
+        if (sessionOwner == null || !sessionOwner.equals(authedOwner)) {
+            log.warn("rejecting register: token owner '{}' does not own coordinator session '{}' for {}",
                     authedOwner, sessionOwner, Session.redact(msg.sessionId()));
             mux.sendControl(FrameType.REGISTER_ACK,
                     ControlCodec.encodeRegisterAck(RegisterAck.rejected(ErrorCodes.OWNER_MISMATCH)));
@@ -180,6 +184,52 @@ public class PodConnection {
             stream.close();
             inFlightStreams.decrementAndGet();
         }
+    }
+
+    /** Bridge one raw TCP connection over a mux stream to the registered local target port. */
+    public void forwardTcp(Socket socket) throws IOException {
+        if (inFlightStreams.incrementAndGet() > props.maxStreamsPerSession()) {
+            inFlightStreams.decrementAndGet();
+            throw new IOException("session stream quota exceeded");
+        }
+        TunnelStream stream = null;
+        try {
+            stream = mux.openStream();
+            StreamProtocol.writeTcpMarker(stream.output());
+            TunnelStream activeStream = stream;
+            Thread upstream = new Thread(() -> copyAndClose(socket, activeStream, socketInput(socket), activeStream.output()),
+                    "relay-tcp-upstream");
+            upstream.setDaemon(true);
+            upstream.start();
+            copy(stream.input(), socket.getOutputStream());
+        } finally {
+            if (stream != null) stream.close();
+            socket.close();
+            inFlightStreams.decrementAndGet();
+        }
+    }
+
+    private static InputStream socketInput(Socket socket) {
+        try {
+            return socket.getInputStream();
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static void copyAndClose(Socket socket, TunnelStream stream, InputStream input, OutputStream output) {
+        try {
+            copy(input, output);
+        } catch (IOException ignored) {
+        } finally {
+            stream.close();
+            try { socket.close(); } catch (IOException ignored) {}
+        }
+    }
+
+    private static void copy(InputStream input, OutputStream output) throws IOException {
+        input.transferTo(output);
+        output.flush();
     }
 
     public void close() {
