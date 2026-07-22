@@ -245,6 +245,7 @@
     <div class="shell">
       <a class="doc-link" href="sprinklr-localconnect-deployment.html">Deployment guide</a>
       <a class="doc-link" href="sprinklr-localconnect-local-webui.html">Local WebUI guide</a>
+      <a class="doc-link" href="sprinklr-localconnect-local-microservice.html">Local microservice guide</a>
       <a href="#overview">Overview</a>
       <a href="#components">Components</a>
       <a href="#ports">Ports</a>
@@ -339,10 +340,11 @@
             <h3>Redis</h3>
             <p>Stores short-lived coordination state.</p>
             <ul>
-              <li>Session → assigned pod</li>
+              <li>Session → assigned relay pod</li>
               <li>Pod → host and port</li>
               <li>Authentication token → owner</li>
               <li>Session and pod heartbeat TTLs</li>
+              <li>No microservice name is stored</li>
             </ul>
           </article>
           <article class="card local">
@@ -359,9 +361,10 @@
             <h3>Request inspector</h3>
             <p>A lightweight Java HTTP server on <code>4040</code>, not Tomcat.</p>
             <ul>
-              <li>Shows requests received by the laptop</li>
+              <li>Shows HTTP requests received by the laptop</li>
               <li>Records status, duration and byte counts</li>
               <li>Exposes <code>/api/requests</code></li>
+              <li>Does not inspect raw TCP/gRPC streams</li>
             </ul>
           </article>
         </div>
@@ -376,7 +379,7 @@
           <tbody>
             <tr><td><code>8090</code></td><td>Developer laptop</td><td>Stable local endpoint forwarded to the QA6 coordinator.</td></tr>
             <tr><td><code>2222</code></td><td>Developer laptop</td><td>Stable local endpoint forwarded to the relay's SSH server.</td></tr>
-            <tr><td><code>4040</code></td><td>Developer laptop</td><td>Local request inspector UI and API.</td></tr>
+            <tr><td><code>4040</code></td><td>Developer laptop</td><td>Local HTTP request inspector UI and API; not used by raw TCP/gRPC.</td></tr>
             <tr><td><code>8080</code></td><td>Developer laptop</td><td>The local WebUI or microservice receiving tunneled requests.</td></tr>
             <tr><td><code>8090</code></td><td>QA6 coordinator</td><td>Authentication, session creation and reassignment.</td></tr>
             <tr><td><code>8080</code></td><td>QA6 router</td><td>Receives selected WebUI requests from ingress.</td></tr>
@@ -482,7 +485,7 @@ lastSeen = &lt;timestamp&gt;</pre>
         </div>
 
         <h3 style="margin-top:24px">Selective microservice/gRPC plane</h3>
-        <p class="section-lead"><code>remoteDebugConf=&lt;session-id&gt;:&lt;microservice&gt;</code> is read by the normal QA6 WebUI. Do not set <code>sprLocalConnect</code> in this mode: the WebUI request stays in QA6, while only calls to the named tier are intercepted.</p>
+        <p class="section-lead"><code>remoteDebugConf=&lt;session-id&gt;:&lt;exact-tier-alias&gt;</code> is read by the normal QA6 WebUI. Do not set <code>sprLocalConnect</code> in this mode: the WebUI request stays in QA6, while only calls using the matching caller-side tier configuration are intercepted.</p>
         <div class="flow data-flow">
           <div class="flow-step">QA6 WebUI<small>Matching destination tier</small></div><div class="flow-arrow">→</div>
           <div class="flow-step">CONNECT router :8181<small>Session in proxy auth</small></div><div class="flow-arrow">→</div>
@@ -492,6 +495,7 @@ lastSeen = &lt;timestamp&gt;</pre>
           <div class="flow-step">Local client</div><div class="flow-arrow">→</div>
           <div class="flow-step">Local microservice</div>
         </div>
+        <div class="callout good" style="margin-top:20px"><strong>The tunnel is generic.</strong> Startup registers only the session and assigned relay. The tier alias is consumed inside the QA6 caller and is not sent to or stored by the router, relay, or Redis. Change the cookie suffix to reuse the same live tunnel for another tier. The verified process-engine flow uses <code>ui-process-engine</code>; a URL segment such as <code>process-engine</code> is not necessarily the configured alias.</div>
 
         <div class="card" style="margin-top:22px">
           <h3>What is preserved?</h3>
@@ -501,7 +505,7 @@ lastSeen = &lt;timestamp&gt;</pre>
 POST http://127.0.0.1:8080/ui/graphql/searchStandardEntities</pre>
         </div>
 
-        <div class="callout" style="margin-top:20px"><strong>Current QA6 note:</strong> remove the existing <code>SPR_STICKINESS</code> cookie when enabling the tunnel. The deployed ingress controller may otherwise keep the browser pinned to the normal WebUI backend.</div>
+        <div class="callout" style="margin-top:20px"><strong>HTTP WebUI mode:</strong> remove the existing <code>SPR_STICKINESS</code> cookie when enabling the canary tunnel. It may otherwise keep the browser pinned to the normal WebUI backend. Microservice mode stays on normal QA6 WebUI and does not use the canary selector.</div>
       </div>
     </section>
 
@@ -525,7 +529,8 @@ POST http://127.0.0.1:8080/ui/graphql/searchStandardEntities</pre>
           <div class="status-row"><b>No <code>sprLocalConnect</code> cookie</b><span>The request remains on the normal QA6 WebUI backend.</span></div>
           <div class="status-row"><b>Valid tunnel cookies</b><span>Ingress selects the router; Redis resolves the session; the request reaches the developer laptop.</span></div>
           <div class="status-row"><b>Old <code>SPR_STICKINESS</code></b><span>The request may remain pinned to normal QA6. Delete the cookie before enabling local routing.</span></div>
-          <div class="status-row"><b>Expired session or missing relay</b><span>The router validates that the original host contains the exact <code>qa6</code> environment token and ends in <code>.sprinklr.com</code>, rebuilds its HTTPS URL, removes the <code>sprLocalConnect</code> and <code>remoteDebugConf</code> cookies, and replays the request to normal WebUI. If validation or replay fails, it returns HTTP <code>502</code> with <code>{"error":"tunnel-not-found"}</code>.</span></div>
+          <div class="status-row"><b>Missing session in HTTP WebUI mode</b><span>The router validates the original QA6 host, rebuilds its HTTPS URL, removes the LocalConnect routing cookies, and replays the HTTP request to normal WebUI. If validation or replay fails, it returns <code>502</code> with <code>{"error":"tunnel-not-found"}</code>.</span></div>
+          <div class="status-row"><b>Missing session in CONNECT mode</b><span>The proxy returns <code>502 Tunnel Not Found</code> to the gRPC client. Raw CONNECT traffic cannot be replayed through the original WebUI ingress.</span></div>
           <div class="status-row"><b>Relay restart</b><span>The client uses the coordinator on <code>8090</code> to request reassignment and reconnect.</span></div>
           <div class="status-row"><b>Local WebUI stopped</b><span>The request reaches the laptop but local forwarding returns an error.</span></div>
           <div class="status-row"><b>Tunnel script stopped</b><span>Ports <code>4040</code>, <code>8090</code> and <code>2222</code> close; Redis session state expires by TTL.</span></div>
@@ -578,6 +583,6 @@ POST http://127.0.0.1:8080/ui/graphql/searchStandardEntities</pre>
     </section>
   </main>
 
-  <footer class="shell">Sprinklr LocalConnect · QA-to-local development architecture · <a href="sprinklr-localconnect-deployment.html">Deploy</a> · <a href="sprinklr-localconnect-local-webui.html">Run local WebUI</a></footer>
+  <footer class="shell">Sprinklr LocalConnect · QA-to-local development architecture · <a href="sprinklr-localconnect-deployment.html">Deploy</a> · <a href="sprinklr-localconnect-local-webui.html">Run local WebUI</a> · <a href="sprinklr-localconnect-local-microservice.html">Run local microservice</a></footer>
 </body>
 </html>

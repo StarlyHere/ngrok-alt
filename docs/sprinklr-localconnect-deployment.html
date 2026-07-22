@@ -29,6 +29,7 @@
   <nav><div class="shell">
     <a href="sprinklr-localconnect-architecture.html">Architecture</a>
     <a href="sprinklr-localconnect-local-webui.html">Local WebUI guide</a>
+    <a href="sprinklr-localconnect-local-microservice.html">Local microservice guide</a>
     <a href="#order">Order</a><a href="#build">Build images</a><a href="#runtime">Deploy runtime</a><a href="#ingress">Deploy ingress</a><a href="#verify">Verify</a><a href="#troubleshooting">Troubleshoot</a>
   </div></nav>
 
@@ -52,7 +53,7 @@
       </div>
       <div class="step"><div class="number">1</div><div><h3>Merge to the default branch</h3><p class="muted">GitLab automatically starts three Jenkins image builds in parallel and retains each resulting timestamp tag as a pipeline artifact.</p></div></div>
       <div class="step"><div class="number">2</div><div><h3>Automatic runtime deployment</h3><p class="muted">After all builds pass, GitLab invokes <code>custom-k8s-helm-deployment</code> once with all three tags. Concurrent QA6 deployments are serialized.</p></div></div>
-      <div class="step"><div class="number">3</div><div><h3>Deploy WebUI releases</h3><p class="muted">Upgrade the required QA6 WebUI releases so their cookie-selected canary Ingress points to the router.</p></div></div>
+      <div class="step"><div class="number">3</div><div><h3>Deploy compatible WebUI releases</h3><p class="muted">HTTP-local mode needs the cookie-selected canary Ingress. Microservice mode also needs the WebUI code that interprets the tier suffix and configures the CONNECT proxy.</p></div></div>
       <div class="step"><div class="number">4</div><div><h3>Verify and start a fresh tunnel</h3><p class="muted">Old POC sessions use different names and Redis keys; they are not migrated.</p></div></div>
     </div></section>
 
@@ -98,21 +99,24 @@ RELAY_TAG=&lt;tag printed by relay build&gt;</pre>
     <section id="ingress"><div class="shell">
       <h2>3. Deploy the WebUI canary Ingress</h2>
       <p class="lead">The runtime alone cannot receive public WebUI traffic. The WebUI chart adds a static QA6 canary Ingress that selects <code>sprLocalConnect=always</code> and sends matching paths to <code>spr-local-connect-tier1-router:8080</code>.</p>
-      <p>Until WebUI MR !30202 merges, deploy from <code>origin/infra/master/spr-local-connect</code>. After it merges, use the normal WebUI chart branch.</p>
+      <div class="callout good"><strong>This Ingress is required only for local WebUI HTTP routing.</strong> Downstream microservice mode leaves the HTTP request on normal QA6 WebUI; that WebUI opens a cluster-internal CONNECT connection to router port <code>8181</code>.</div>
+      <p>The LocalConnect WebUI chart changes are merged. Deploy the normal
+      <code>origin/master</code> branch; the former feature branch is no longer
+      required.</p>
       <div class="grid two">
         <article class="card"><h3>qa6-app</h3><pre>GIT_REPO_URL=git@prod-gitlab.sprinklr.com:sprinklr-k8s/helm-charts.git
 KUBE_CLUSTER=apps-gke
 CHART_NAME=webui
 CHART_RELEASE_NAME=qa6-app
 CHART_NAMESPACE=spr-apps
-CHART_REPO_BRANCH=origin/infra/master/spr-local-connect
+CHART_REPO_BRANCH=origin/master
 ITOPS_REPO_BRANCH=origin/custom-helm-deploy</pre></article>
         <article class="card"><h3>qa6-workflow</h3><pre>GIT_REPO_URL=git@prod-gitlab.sprinklr.com:sprinklr-k8s/helm-charts.git
 KUBE_CLUSTER=apps-gke
 CHART_NAME=webui
 CHART_RELEASE_NAME=qa6-workflow
 CHART_NAMESPACE=spr-apps
-CHART_REPO_BRANCH=origin/infra/master/spr-local-connect
+CHART_REPO_BRANCH=origin/master
 ITOPS_REPO_BRANCH=origin/custom-helm-deploy</pre></article>
       </div>
       <div class="callout"><strong>Release selection matters.</strong> Deploy each WebUI release whose host/path matrix you want to intercept. For <code>space-qa6-app-workflow.sprinklr.com</code>, the relevant release is <code>qa6-workflow</code>.</div>
@@ -132,6 +136,14 @@ kubectl -n spr-apps get ingress | grep spr-local-connect</pre>
       <pre>spr-local-connect-tier1-coordinator
 spr-local-connect-tier1-router
 spr-local-connect-tier1-relay</pre>
+      <p>Verify the ports explicitly; pod readiness alone does not prove the raw data plane is exposed:</p>
+      <pre>kubectl -n spr-apps get svc spr-local-connect-tier1-router \
+  -o jsonpath='{.spec.ports}{"\n"}'
+kubectl -n spr-apps get deploy spr-local-connect-tier1-relay \
+  -o jsonpath='{.spec.template.spec.containers[0].ports}{"\n"}'
+kubectl -n spr-apps logs deploy/spr-local-connect-tier1-relay \
+  | grep 'raw TCP bridge listening on 8182'</pre>
+      <p>Expected: router Service ports <code>8080</code> and <code>8181</code>; relay container ports <code>8080</code>, <code>2222</code>, and <code>8182</code>.</p>
       <p>Confirm health from inside the cluster:</p>
       <pre>kubectl -n spr-apps port-forward svc/spr-local-connect-tier1-coordinator 8090:8090
 curl http://127.0.0.1:8090/actuator/health</pre>
@@ -146,10 +158,13 @@ curl http://127.0.0.1:8090/actuator/health</pre>
         <tr><td>Service not found during tunnel startup</td><td>The chart is absent, wrong branch was used, or the expected release was not installed.</td></tr>
         <tr><td>Service has no endpoints</td><td>Pods are not Ready. Inspect <code>kubectl describe pod</code> and component logs.</td></tr>
         <tr><td>Request never reaches router</td><td>Canary Ingress is missing for that WebUI release/host/path, selector cookie is absent, or old stickiness is overriding selection.</td></tr>
-        <tr><td>Router reports no live relay</td><td>Session is old/expired or relay heartbeat is absent. The router strips the LocalConnect routing cookies and replays the request through its original QA ingress so normal WebUI handles it. Start a fresh tunnel and use its newly printed session cookie to restore local routing.</td></tr>
+        <tr><td>CONNECT resets immediately</td><td>The router process may listen on <code>8181</code> while its Kubernetes Service exposes only <code>8080</code>. Redeploy the chart and verify both Service ports.</td></tr>
+        <tr><td><code>502 Tunnel Not Found</code> from CONNECT</td><td>The session key is absent/stale or the assigned relay does not own the active SSH session. Confirm the session printed at startup matches the established session and exists in Redis.</td></tr>
+        <tr><td>Router reports no live relay for HTTP</td><td>Session is old/expired or relay heartbeat is absent. The HTTP router strips LocalConnect routing cookies and replays through the original QA ingress. Start a fresh tunnel to restore local routing.</td></tr>
+        <tr><td>gRPC works but nothing appears on <code>4040</code></td><td>Expected. CONNECT forwards an untouched raw stream and bypasses the HTTP inspector; use a local breakpoint, application log, or listening-port check.</td></tr>
       </tbody></table>
     </div></section>
   </main>
-  <footer class="shell">Sprinklr LocalConnect · QA6 deployment guide · <a href="sprinklr-localconnect-architecture.html">Architecture</a> · <a href="sprinklr-localconnect-local-webui.html">Local WebUI</a></footer>
+  <footer class="shell">Sprinklr LocalConnect · QA6 deployment guide · <a href="sprinklr-localconnect-architecture.html">Architecture</a> · <a href="sprinklr-localconnect-local-webui.html">Local WebUI</a> · <a href="sprinklr-localconnect-local-microservice.html">Local microservice</a></footer>
 </body>
 </html>

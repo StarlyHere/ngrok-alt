@@ -17,23 +17,29 @@ browser → QA6 canary Ingress → router → relay ──SSH──▶ your lapt
 5. Router reads `remoteDebugConf=<sessionId>`, resolves the owning relay in Redis, and forwards the request into the tunnel
 6. Responses travel back the same way
 
-For WebUI-to-microservice gRPC calls, `remoteDebugConf=<sessionId>:<microservice>`
-selects only the named destination. Sprinklr's gRPC channel uses the router's
+For WebUI-to-microservice gRPC calls, `remoteDebugConf=<sessionId>:<tier-alias>`
+selects only the matching caller-side tier configuration. The tunnel itself is
+microservice-agnostic: Redis stores the session owner and assigned relay, not a
+microservice name, and the same live session can be used for a different tier by
+changing only the cookie suffix. Sprinklr's gRPC channel uses the router's
 HTTP CONNECT port (`8181`); the router resolves the session, connects to the
 relay's raw bridge (`8182`), and the existing multiplexed SSH connection carries
 the untouched TCP/gRPC byte stream to the local port.
 Raw streams intentionally bypass the HTTP inspector on `4040`; verify them in
 the local microservice logs or debugger.
 
-If the selected session is absent or has no live relay, the router replays the
-request through its original QA ingress hostname after removing only the
-`sprLocalConnect`, `remoteDebugConf`, and tunnel-routing header. The replay is
+For a selected WebUI HTTP request, if the session is absent or has no live
+relay, the router replays the request through its original QA ingress hostname
+after removing only the `sprLocalConnect`, `remoteDebugConf`, and tunnel-routing
+header. The replay is
 therefore handled by the normal WebUI backend without looping through the
 LocalConnect canary. An explicit `WEBUI_FALLBACK_URL` can override this dynamic
 target. The QA6 Helm release allows only hostnames containing `qa6` as an exact
 hyphen/dot-delimited environment token and ending in `.sprinklr.com`; dynamic
 replay always uses HTTPS. If the host is not allowed or replay fails, the router
-returns `502 {"error":"tunnel-not-found"}`.
+returns `502 {"error":"tunnel-not-found"}`. Raw CONNECT traffic cannot be
+replayed as a WebUI request; a missing session or relay returns `502 Tunnel Not
+Found` to the gRPC client.
 
 ---
 
@@ -82,7 +88,9 @@ java -jar client/build/libs/client-0.1.0-SNAPSHOT.jar \
 | `30092` | Coordinator (port-forwarded from cluster) |
 | `30022` | Relay SSH (port-forwarded from cluster) |
 | `30080` | Router (NodePort) |
-| `4040` | Request inspector |
+| `4040` | Laptop HTTP request inspector; raw TCP/gRPC does not pass through it |
+| `8181` | QA6 router HTTP CONNECT proxy for raw TCP/gRPC |
+| `8182` | QA6 relay raw TCP bridge |
 
 ---
 
@@ -144,17 +152,22 @@ local WebUI backend development, set both cookies with `Path=/ui`; this keeps
 frontend routes such as `/care/...` on normal QA6 while tunnelling `/ui/...`
 requests. Use `Path=/` only when the entire host should go to the local service.
 
-To intercept a downstream microservice instead, append its exact tier type:
+To intercept a downstream microservice instead, append its exact caller-side
+tier alias:
 
 ```text
-remoteDebugConf=<their-session-id>:process-engine
+remoteDebugConf=<their-session-id>:ui-process-engine
 ```
 
 In microservice mode, do **not** set `sprLocalConnect`. The original request must
 stay on the QA6 WebUI so its gRPC client can select the named tier and use the
 cluster-internal CONNECT router. Only that downstream connection is tunnelled to
 the local service. `sprLocalConnect=always` is reserved for routing the WebUI
-HTTP request itself to a locally running WebUI.
+HTTP request itself to a locally running WebUI. The URL segment is not
+necessarily the tier alias: for example, the verified
+`/ui/rest/process-engine/getDecoratedProcessDefinition/...` flow uses
+`ui-process-engine`. Find the exact value in the caller's tier configuration or
+where it constructs `MicroServiceClient`.
 
 After deployment, connect to the cluster and expose the two developer-facing
 ports locally:
@@ -173,11 +186,9 @@ For the normal laptop workflow, start the application that should receive QA6
 requests and use the QA6 launcher instead of managing those processes manually:
 
 ```bash
-# Example: the local application is already listening on port 8080
+# The local WebUI or gRPC microservice is already listening on port 8080.
+# The browser cookie chosen after startup determines the routing mode.
 scripts/qa6-local-connect.sh 8080
-
-# Route WebUI calls whose destination tier type is process-engine.
-scripts/qa6-local-connect.sh 8080 "$(openssl rand -hex 16)" process-engine
 ```
 
 The launcher builds the client incrementally, opens the access-host SSH session,
@@ -186,6 +197,22 @@ token, generates a session ID, prints the required browser cookies, and runs the
 client. It may prompt for SSH and sudo credentials; it never stores them. Press
 Ctrl+C to close the client and all port-forwards. Run
 `scripts/qa6-local-connect.sh --help` for connection overrides.
+
+The optional third launcher argument changes only the cookie example printed to
+the terminal. It does not register or persist a microservice name. Prefer the
+generic command above, then set the appropriate cookie for the mode being
+tested.
+
+### Choose the routing mode
+
+| Goal | Browser cookies | QA6 entry point | Inspector |
+|---|---|---|---|
+| Run WebUI HTTP locally | `sprLocalConnect=always`, `remoteDebugConf=<session-id>` | Canary Ingress → router `8080` | `localhost:4040` |
+| Run one downstream gRPC tier locally | `remoteDebugConf=<session-id>:<exact-tier-alias>` only | Normal QA6 WebUI → CONNECT router `8181` | Local logs/debugger; not `4040` |
+
+See [the local WebUI runbook](docs/sprinklr-localconnect-local-webui.html) and
+[the local microservice runbook](docs/sprinklr-localconnect-local-microservice.html)
+for end-to-end commands and diagnosis.
 
 The production release uses its own Redis key prefix and cookie name. Sessions
 created by an earlier POC release are not migrated; start a new session and use

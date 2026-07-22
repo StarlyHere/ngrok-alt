@@ -104,8 +104,8 @@ public class PodConnection {
         // Ownership boundary (§9.2.3): the session's owner (set by the Coordinator)
         // must match the token the transport handshake was authenticated with.
         String sessionOwner = redis.sessionOwner(msg.sessionId()).orElse(null);
-        if (sessionOwner != null && !sessionOwner.equals(authedOwner)) {
-            log.warn("owner mismatch on register: token owner '{}' != session owner '{}' for {}",
+        if (sessionOwner == null || !sessionOwner.equals(authedOwner)) {
+            log.warn("rejecting register: token owner '{}' does not own coordinator session '{}' for {}",
                     authedOwner, sessionOwner, Session.redact(msg.sessionId()));
             mux.sendControl(FrameType.REGISTER_ACK,
                     ControlCodec.encodeRegisterAck(RegisterAck.rejected(ErrorCodes.OWNER_MISMATCH)));
