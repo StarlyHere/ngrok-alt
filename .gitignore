@@ -24,6 +24,7 @@ client/client
 # Markdown docs (keep README)
 *.md
 !README.md
+!.agents/**/*.md
 
 # Claude config
 .claude/
